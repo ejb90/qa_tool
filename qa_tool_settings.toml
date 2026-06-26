@@ -1,0 +1,67 @@
+[page]
+title = "Shock Bubble Interaction Run Database"
+layout = "wide"
+
+[database]
+path = "runs.db"
+artifact_root = "./artifacts"
+
+[intro]
+description = "Interactive run database for shock bubble interaction regression and quality-assurance analysis."
+show_database_path = true
+show_artifact_root = true
+
+[[intro.links]]
+label = "Manual"
+url = "https://github.com/ejb90/qa_tool#readme"
+
+[[intro.links]]
+label = "Source"
+url = "https://github.com/ejb90/qa_tool"
+
+[defaults]
+# Empty table_metrics means "select every numeric metric".
+table_metrics = []
+
+[summaries.default]
+top = ["runs", "versions", "models", "total_runtime"]
+metrics = ["runtime", "memory_hwm"]
+aggregations = ["mean", "max"]
+
+[summaries.tabs.all_runs]
+
+[summaries.tabs.versions]
+top = ["versions",]
+metrics = ["runtime", "memory_hwm"]
+aggregations = ["mean"]
+
+[summaries.tabs.models]
+top = ["models", ]
+metrics = ["runtime", "memory_hwm"]
+aggregations = ["mean"]
+
+[summaries.tabs.compare_versions]
+top = []
+metrics = []
+aggregations = []
+
+[summaries.tabs.pie_charts]
+top = []
+metrics = []
+aggregations = []
+
+[summaries.tabs.run_detail]
+top = []
+metrics = []
+aggregations = []
+
+[tabs]
+all_runs = true
+versions = true
+models = true
+compare_versions = true
+pie_charts = true
+run_detail = true
+
+[plots]
+height = 520

@@ -6,11 +6,14 @@ import datetime
 from collections.abc import Iterable
 from pathlib import Path
 
-from sqlalchemy import DateTime, Float, Index, String, create_engine, func, select, text
+from sqlalchemy import Boolean, DateTime, Float, Index, String, create_engine, func, select, text
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from build_dummy_data import Run, build_data
+try:
+    from qa_tool.build_dummy_data import Run, build_data
+except ModuleNotFoundError:
+    from build_dummy_data import Run, build_data
 
 
 class Base(DeclarativeBase):
@@ -30,6 +33,7 @@ class RunRecord(Base):
     model: Mapped[str] = mapped_column(String, nullable=False)
     version: Mapped[str] = mapped_column(String, nullable=False)
     date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    modified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     density: Mapped[float] = mapped_column(Float, nullable=False)
     velocity: Mapped[float] = mapped_column(Float, nullable=False)
     error: Mapped[float] = mapped_column(Float, nullable=False)
@@ -53,6 +57,7 @@ def run_to_dict(run: Run) -> dict[str, object]:
         "error": run.error,
         "runtime": run.runtime,
         "memory_hwm": run.memory_hwm,
+        "modified": run.modified,
     }
 
 

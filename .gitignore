@@ -218,9 +218,8 @@ __marimo__/
 
 # Local
 mlflow/
-runs.db
+runs.db.bak
 
 # OS-generated files
 .DS_Store
 Thumbs.db  
-

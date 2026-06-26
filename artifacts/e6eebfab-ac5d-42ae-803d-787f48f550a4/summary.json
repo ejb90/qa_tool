@@ -1,0 +1,15 @@
+{
+  "uid": "e6eebfab-ac5d-42ae-803d-787f48f550a4",
+  "name": "SF6-v4.0.0-e6eebfab-ac5d-42ae-803d-787f48f550a4",
+  "model": "SF6",
+  "version": "v4.0.0",
+  "date": "2026-12-25 06:07:00",
+  "metrics": {
+    "density": 6.062764478144016,
+    "velocity": 0.0007785181566643444,
+    "error": 0.004943520731071871,
+    "runtime": 5.658285733089285,
+    "memory_hwm": 7.3365173817280445
+  },
+  "notes": "Dummy artifact bundle for testing the Run Detail tab."
+}
