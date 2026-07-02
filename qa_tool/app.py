@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import json
 import tarfile
 import tempfile
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -33,10 +35,50 @@ TOP_SUMMARY_LABELS = {
 }
 
 
+def normalize_run_columns(
+    runs: pd.DataFrame,
+    model_column: str,
+    version_column: str,
+) -> pd.DataFrame:
+    required_columns = {
+        "model": model_column,
+        "version": version_column,
+    }
+    missing_columns = [
+        source_column
+        for source_column in required_columns.values()
+        if source_column not in runs.columns
+    ]
+    if missing_columns:
+        raise ValueError(
+            "Missing configured database column(s): "
+            + ", ".join(f"`{column}`" for column in missing_columns)
+        )
+
+    rename_columns = {
+        source_column: canonical_column
+        for canonical_column, source_column in required_columns.items()
+        if source_column != canonical_column
+    }
+    collisions = [
+        canonical_column
+        for canonical_column, source_column in required_columns.items()
+        if source_column != canonical_column and canonical_column in runs.columns
+    ]
+    if collisions:
+        raise ValueError(
+            "Cannot map configured column(s) because the canonical column already exists: "
+            + ", ".join(f"`{column}`" for column in collisions)
+        )
+
+    return runs.rename(columns=rename_columns)
+
+
 @st.cache_data(show_spinner=False)
-def load_runs(db_path: str) -> pd.DataFrame:
+def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFrame:
     engine = create_engine(f"sqlite:///{db_path}")
     runs = pd.read_sql_table("runs", engine)
+    runs = normalize_run_columns(runs, model_column, version_column)
     if not pd.api.types.is_datetime64_any_dtype(runs["date"]):
         runs["date"] = pd.to_datetime(runs["date"], format="%Y-%m-%d %H:%M:%S")
     return runs.sort_values("date", ascending=False)
@@ -547,7 +589,7 @@ def show_model_tables(
 def version_sort_key(version: str) -> tuple[int, ...]:
     return tuple(
         int(part)
-        for part in version.removeprefix("v").split(".")
+        for part in str(version).removeprefix("v").split(".")
         if part.isdigit()
     )
 
@@ -941,8 +983,21 @@ def show_pie_charts(
     )
 
 
-def main() -> None:
-    settings = load_settings()
+def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--settings")
+    args, _ = parser.parse_known_args(argv)
+    return args.settings
+
+
+def main(settings_path: str | Path | None = None) -> None:
+    try:
+        settings = load_settings(settings_path or cli_settings_path())
+    except FileNotFoundError as error:
+        st.set_page_config(page_title="QA Tool", layout="wide")
+        st.error(str(error))
+        return
+
     page_title = settings["page"]["title"]
     plot_height = settings["plots"]["height"]
 
@@ -956,7 +1011,16 @@ def main() -> None:
 
     show_intro(settings, db_path)
 
-    runs = load_runs(str(db_path))
+    database_columns = settings["database"].get("columns", {})
+    try:
+        runs = load_runs(
+            str(db_path),
+            database_columns.get("model", "model"),
+            database_columns.get("version", "version"),
+        )
+    except ValueError as error:
+        st.error(str(error))
+        return
     metrics = metric_columns(runs)
     filtered = filter_runs(runs, metrics, settings)
     metrics = st.session_state.get("summary_metrics", metrics)

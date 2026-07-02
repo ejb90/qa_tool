@@ -1,84 +1,17 @@
 from __future__ import annotations
 
+import os
 import tomllib
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 
-DEFAULT_SETTINGS_PATH = Path("qa_tool_settings.toml")
-DEFAULT_SETTINGS = {
-    "page": {
-        "title": "Shock Bubble Interaction Run Database",
-        "layout": "wide",
-    },
-    "database": {
-        "path": "runs.db",
-        "artifact_root": "",
-    },
-    "intro": {
-        "description": (
-            "Interactive run database for shock bubble interaction regression "
-            "and quality-assurance analysis."
-        ),
-        "links": [
-            {"label": "Manual", "url": ""},
-            {"label": "Source", "url": ""},
-        ],
-        "show_database_path": True,
-        "show_artifact_root": True,
-    },
-    "defaults": {
-        "table_metrics": [],
-    },
-    "summaries": {
-        "default": {
-            "top": ["runs", "versions", "models", "total_runtime"],
-            "metrics": ["runtime", "memory_hwm"],
-            "aggregations": ["mean", "max"],
-        },
-        "tabs": {
-            "all_runs": {},
-            "versions": {
-                "top": ["versions", "models", "total_runtime"],
-                "metrics": ["runtime", "memory_hwm"],
-                "aggregations": ["mean"],
-            },
-            "models": {
-                "top": ["models", "versions", "total_runtime"],
-                "metrics": ["density", "velocity", "error"],
-                "aggregations": ["mean"],
-            },
-            "compare_versions": {
-                "top": [],
-                "metrics": [],
-                "aggregations": [],
-            },
-            "pie_charts": {
-                "top": [],
-                "metrics": [],
-                "aggregations": [],
-            },
-            "run_detail": {
-                "top": [],
-                "metrics": [],
-                "aggregations": [],
-            },
-        },
-    },
-    "tabs": {
-        "all_runs": True,
-        "versions": True,
-        "models": True,
-        "compare_versions": True,
-        "pie_charts": True,
-        "run_detail": True,
-    },
-    "plots": {
-        "height": 520,
-    },
-}
+SETTINGS_ENV_VAR = "QA_TOOL_SETTINGS"
+DEFAULT_SETTINGS_RESOURCE = "default_settings.toml"
+PACKAGE_NAME = __package__ or "qa_tool"
 
 
 def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -94,13 +27,33 @@ def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[
     return merged
 
 
-@st.cache_data(show_spinner=False)
-def load_settings(settings_path: str = str(DEFAULT_SETTINGS_PATH)) -> dict[str, Any]:
-    path = Path(settings_path)
-    if not path.exists():
-        return DEFAULT_SETTINGS
+def load_toml_file(path: Path) -> dict[str, Any]:
     with path.open("rb") as settings_file:
-        return deep_merge_settings(DEFAULT_SETTINGS, tomllib.load(settings_file))
+        return tomllib.load(settings_file)
+
+
+def load_packaged_defaults() -> dict[str, Any]:
+    settings_resource = files(PACKAGE_NAME).joinpath(DEFAULT_SETTINGS_RESOURCE)
+    return tomllib.loads(settings_resource.read_text(encoding="utf-8"))
+
+
+def override_settings_path(settings_path: str | Path | None = None) -> Path | None:
+    if settings_path:
+        return Path(settings_path)
+    if env_path := os.environ.get(SETTINGS_ENV_VAR):
+        return Path(env_path)
+    return None
+
+
+@st.cache_data(show_spinner=False)
+def load_settings(settings_path: str | Path | None = None) -> dict[str, Any]:
+    settings = load_packaged_defaults()
+    override_path = override_settings_path(settings_path)
+    if override_path is None:
+        return settings
+    if not override_path.exists():
+        raise FileNotFoundError(f"Could not find settings file: {override_path}")
+    return deep_merge_settings(settings, load_toml_file(override_path))
 
 
 def configured_metrics(configured: list[str], available: list[str], fallback: list[str]) -> list[str]:
