@@ -1,0 +1,46 @@
+database_rows,query,result_rows_sqlite,result_rows_duckdb,sqlite_ms,duckdb_ms,sqlite_duckdb_ratio,description
+10,row_count,1,1,0.004917,0.133791,0.036751,Count all runs.
+10,filter_options,21,21,0.018208,0.805291,0.022611,Load model/version/date sidebar options.
+10,version_means,5,5,0.010833,0.634208,0.017081,Versions tab: mean metrics by version.
+10,model_means,5,5,0.010250,0.550958,0.018604,Models tab: mean metrics by model.
+10,filtered_summary,1,1,0.027042,0.571708,0.047300,Summary cards after sidebar filters.
+10,paged_all_runs,2,2,0.015375,0.461625,0.033306,All Runs tab: first page after filters.
+10,run_detail,1,1,0.007791,0.209833,0.037129,Run Detail tab: lookup one run by uid.
+10,pie_by_model,9,9,0.011333,0.431833,0.026243,Pie chart: runtime by model.
+10,compare_versions,1,1,0.023167,0.908542,0.025499,Compare Versions tab: per-model deltas.
+100,row_count,1,1,0.004625,0.118875,0.038906,Count all runs.
+100,filter_options,124,124,0.065666,0.751375,0.087394,Load model/version/date sidebar options.
+100,version_means,61,61,0.070042,0.572792,0.122282,Versions tab: mean metrics by version.
+100,model_means,24,24,0.043208,0.614625,0.070299,Models tab: mean metrics by model.
+100,filtered_summary,1,1,0.019791,0.808625,0.024475,Summary cards after sidebar filters.
+100,paged_all_runs,5,5,0.022125,0.742000,0.029818,All Runs tab: first page after filters.
+100,run_detail,1,1,0.014000,0.211084,0.066323,Run Detail tab: lookup one run by uid.
+100,pie_by_model,27,27,0.033917,0.496625,0.068295,Pie chart: runtime by model.
+100,compare_versions,1,1,0.015875,0.888958,0.017858,Compare Versions tab: per-model deltas.
+1000,row_count,1,1,0.005334,0.086959,0.061336,Count all runs.
+1000,filter_options,737,737,0.316417,1.062500,0.297804,Load model/version/date sidebar options.
+1000,version_means,549,549,0.653708,0.771542,0.847274,Versions tab: mean metrics by version.
+1000,model_means,27,27,0.246750,0.640459,0.385270,Models tab: mean metrics by model.
+1000,filtered_summary,1,1,0.018375,0.846125,0.021717,Summary cards after sidebar filters.
+1000,paged_all_runs,7,7,0.022708,0.714667,0.031774,All Runs tab: first page after filters.
+1000,run_detail,1,1,0.007208,0.199709,0.036092,Run Detail tab: lookup one run by uid.
+1000,pie_by_model,27,27,0.188375,0.495167,0.380427,Pie chart: runtime by model.
+1000,compare_versions,3,3,0.025375,0.966959,0.026242,Compare Versions tab: per-model deltas.
+10000,row_count,1,1,0.006792,0.120500,0.056362,Count all runs.
+10000,filter_options,1664,1664,1.228583,1.754125,0.700396,Load model/version/date sidebar options.
+10000,version_means,1583,1583,9.506500,5.443542,1.746381,Versions tab: mean metrics by version.
+10000,model_means,27,27,6.108959,0.980875,6.228071,Models tab: mean metrics by model.
+10000,filtered_summary,1,1,0.018125,0.987375,0.018357,Summary cards after sidebar filters.
+10000,paged_all_runs,17,17,0.034750,1.994375,0.017424,All Runs tab: first page after filters.
+10000,run_detail,1,1,0.007375,0.278625,0.026468,Run Detail tab: lookup one run by uid.
+10000,pie_by_model,27,27,5.700542,0.683916,8.335151,Pie chart: runtime by model.
+10000,compare_versions,12,12,0.056000,1.566417,0.035750,Compare Versions tab: per-model deltas.
+100000,row_count,1,1,0.556375,0.132083,4.212314,Count all runs.
+100000,filter_options,1697,1697,7.370958,1.198583,6.149725,Load model/version/date sidebar options.
+100000,version_means,1668,1668,108.678125,2.809667,38.680073,Versions tab: mean metrics by version.
+100000,model_means,27,27,108.274833,2.105500,51.424758,Models tab: mean metrics by model.
+100000,filtered_summary,1,1,0.036458,1.566292,0.023277,Summary cards after sidebar filters.
+100000,paged_all_runs,59,59,0.096084,3.536666,0.027168,All Runs tab: first page after filters.
+100000,run_detail,1,1,0.007458,0.226375,0.032945,Run Detail tab: lookup one run by uid.
+100000,pie_by_model,27,27,105.090250,0.950291,110.587408,Pie chart: runtime by model.
+100000,compare_versions,27,27,0.208583,1.875375,0.111222,Compare Versions tab: per-model deltas.

@@ -1,13 +1,17 @@
 import datetime
+from pathlib import Path
 import random
 import uuid
 
+import numpy as np
 from pydantic import BaseModel
+import polars as pl
 
 
 class Run(BaseModel):
     name: str
     version: str
+    model: str
     date: datetime.datetime
     uid: str
     modified: bool
@@ -17,11 +21,140 @@ class Run(BaseModel):
     error: float
     runtime: float
     memory_hwm: float
+    artifact: Path | None = None
+
+    def model_post_init(self, __context: dict) -> None:
+        self.artifact = Path("store") / self.name
+        self.build_dummy_parquets()
+        self.save_json(self.artifact / "metadata.json")
+        
+    def build_dummy_parquets(self) -> None:
+        generate_material_parquet_files(
+            self.artifact,
+            mean_density=self.density,
+            mean_velocity=self.velocity,
+            seed=random.randint(0, 1000000)
+        )
+
+    def save_json(self, path: str | Path) -> None:
+        Path(path).write_text(self.model_dump_json(indent=2))
 
 
-def build_data() -> list[Run]:
+def generate_material_parquet_files(
+    output_dir: str | Path,
+    seed: int | None = None,
+    base_rows: int = 1000,
+    variation: int = 250,
+    mean_density: float = 1.0,
+    mean_velocity: float = 1.0,
+) -> None:
+    """
+    Generate 5 parquet files containing a time column and three material columns.
+
+    Files generated:
+        density.parquet
+        velocity.parquet
+        pressure.parquet
+        error.parquet
+        memory.parquet
+
+    Each file has columns:
+        time, material_1, material_2, material_3
+
+    The number of rows varies randomly around `base_rows`, and may be as low as 0.
+    """
+
+    rng = np.random.default_rng(seed)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    quantities = {
+        "density": {
+            "scale": 1.223,
+            "noise": 0.05,
+            "offset": 1.0,
+        },
+        "velocity": {
+            "scale": 100.0,
+            "noise": 5.0,
+            "offset": 0.0,
+        },
+        "pressure": {
+            "scale": 1.0e5,
+            "noise": 2.0e3,
+            "offset": 1.0e5,
+        },
+        "error": {
+            "scale": 1.0e-3,
+            "noise": 2.0e-4,
+            "offset": 0.0,
+        },
+        "memory": {
+            "scale": 500.0,
+            "noise": 25.0,
+            "offset": 1000.0,
+        },
+    }
+
+    for quantity, params in quantities.items():
+        if quantity == "density":
+            params["scale"] = mean_density
+        elif quantity == "velocity":
+            params["scale"] = mean_velocity
+
+
+        # Random row count, usually near 1000, but can occasionally be very small.
+        n_rows = max(0, int(rng.normal(loc=base_rows, scale=variation)))
+
+        # Small chance of producing a near-empty or empty file.
+        if rng.random() < 0.1:
+            n_rows = int(rng.integers(0, 50))
+
+        if n_rows == 0:
+            df = pl.DataFrame(
+                schema={
+                    "time": pl.Float64,
+                    "material_1": pl.Float64,
+                    "material_2": pl.Float64,
+                    "material_3": pl.Float64,
+                }
+            )
+        else:
+            time = np.linspace(0.0, 1.0, n_rows)
+
+            df = pl.DataFrame(
+                {
+                    "time": time,
+                    "material_1": (
+                        params["offset"]
+                        + params["scale"] * np.sin(2 * np.pi * time)
+                        + rng.normal(0.0, params["noise"], n_rows)
+                    ),
+                    "material_2": (
+                        params["offset"]
+                        + params["scale"] * np.cos(2 * np.pi * time)
+                        + rng.normal(0.0, params["noise"], n_rows)
+                    ),
+                    "material_3": (
+                        params["offset"]
+                        + params["scale"] * np.sin(4 * np.pi * time)
+                        + rng.normal(0.0, params["noise"], n_rows)
+                    ),
+                }
+            )
+
+        df.write_parquet(output_dir / f"{quantity}.parquet")
+
+
+def build_data(max_runs: int = 7, major_versions: int=10) -> list[Run]:
     """"""
-    versions = ["v1.0.0", "v1.1.0", "v1.2.0", "v1.2.1", "v1.2.2", "v1.3.0", "v1.4.0", "v2.0.0", "v2.1.0", "v2.2.0", "v3.0.0", "v3.1.0", "v3.2.0", "v3.3.0", "v4.0.0", "v4.1.0", "v4.2.0", "v5.0.0", "v5.1.0", "v5.2.0", "v6.0.0", "v6.1.0", "v6.2.0"]
+
+    versions = []
+    for i in range(1, major_versions + 1):
+        for j in range(0, np.random.randint(0, 12)):
+            for k in range(0, np.random.randint(0, 10)):
+                versions.append(f"v{i}.{j}.{k}")
+
     gas_density_rtp_kg_m3 = {
         # Noble gases
         "He": 0.166,
@@ -72,7 +205,7 @@ def build_data() -> list[Run]:
             random.randint(0, 59)
         )
         for model in gas_density_rtp_kg_m3:
-            for j in range(random.randint(0, 7)):
+            for j in range(random.randint(0, max_runs)):
                 uid = str(uuid.uuid4())
                 run_name = f"{model}-{version}-{uid}"
                 density = gas_density_rtp_kg_m3[model] + random.uniform(-0.05, 0.05)
@@ -85,6 +218,7 @@ def build_data() -> list[Run]:
                 runs.append(
                     Run(
                     name=run_name,
+                    model=model,
                     version=version,
                     date=date,
                     uid=uid,
@@ -98,3 +232,6 @@ def build_data() -> list[Run]:
                 )
     return runs
 
+
+
+build_data(max_runs=5, major_versions=50)

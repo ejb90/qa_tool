@@ -218,6 +218,7 @@ __marimo__/
 
 # Local
 mlflow/
+store/
 runs.db.bak
 
 # OS-generated files
