@@ -7,16 +7,77 @@ import csv
 import random
 import sqlite3
 import statistics
+import sys
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
+import numpy as np
+import pandas as pd
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from qa_tool.load_dummy_data import load_metadata, write_duckdb, write_sqlite
 
 QueryParams = tuple[object, ...]
+DEFAULT_SIZES = [10, 100, 1_000, 10_000, 100_000, 1_000_000]
+MODEL_NAMES = np.array(
+    [
+        "He",
+        "Ne",
+        "Ar",
+        "Kr",
+        "Xe",
+        "Rn",
+        "H2",
+        "N2",
+        "O2",
+        "F2",
+        "Cl2",
+        "CO",
+        "CO2",
+        "NO",
+        "NO2",
+        "N2O",
+        "SO2",
+        "H2S",
+        "NH3",
+        "CH4",
+        "C2H2",
+        "C2H4",
+        "C2H6",
+        "C3H8",
+        "C4H10",
+        "SF6",
+        "CF4",
+    ],
+    dtype=object,
+)
+STRING_METADATA_COLUMNS = (
+    "git_commit",
+    "git_branch",
+    "git_tag",
+    "code_version",
+    "compiler",
+    "compiler_version",
+    "mpi_version",
+    "scheduler",
+    "queue",
+    "partition",
+    "hpc_system",
+    "node_type",
+    "job_name",
+    "job_id",
+    "user_name",
+    "project",
+    "container_image",
+    "os_image",
+    "input_deck",
+    "mesh_id",
+)
+SCALAR_METADATA_COLUMNS = tuple(f"scalar_{index:02d}" for index in range(1, 31))
 
 
 @dataclass(frozen=True)
@@ -114,30 +175,8 @@ def build_sample_context(connection: sqlite3.Connection) -> SampleContext:
     min_date, max_date = connection.execute("SELECT min(date), max(date) FROM runs").fetchone()
     uid = str(scalar_sqlite(connection, "SELECT uid FROM runs ORDER BY date DESC LIMIT 1"))
 
-    comparison_versions = connection.execute(
-        """
-        WITH version_models AS (
-            SELECT version, model
-            FROM runs
-            GROUP BY version, model
-        )
-        SELECT base.version, new.version, count(*) AS shared_models
-        FROM version_models AS base
-        JOIN version_models AS new
-          ON base.model = new.model
-         AND base.version < new.version
-        GROUP BY base.version, new.version
-        ORDER BY shared_models DESC, base.version, new.version
-        LIMIT 1
-        """
-    ).fetchone()
-
-    if comparison_versions is None:
-        base_version = versions[0]
-        new_version = versions[1] if len(versions) > 1 else versions[0]
-    else:
-        base_version = str(comparison_versions[0])
-        new_version = str(comparison_versions[1])
+    base_version = versions[0]
+    new_version = versions[1] if len(versions) > 1 else versions[0]
     return SampleContext(
         model=model,
         versions=versions,
@@ -548,11 +587,142 @@ def scaled_database_paths(output_dir: Path, size: int) -> tuple[Path, Path]:
     return output_dir / f"runs_{size}.db", output_dir / f"runs_{size}.duckdb"
 
 
-def build_scaled_databases(
+def synthetic_runs(size: int) -> pd.DataFrame:
+    """Build deterministic wide synthetic runs with realistic metadata columns."""
+    index = np.arange(size)
+    major = index % 50 + 1
+    minor = index // 50 % 20
+    patch = index // 1_000 % 10
+    versions = np.array(
+        [
+            f"v{major_item}.{minor_item}.{patch_item}"
+            for major_item, minor_item, patch_item in zip(major, minor, patch, strict=True)
+        ],
+        dtype=object,
+    )
+    models = MODEL_NAMES[index % len(MODEL_NAMES)]
+    dates = (
+        pd.Timestamp("2026-01-01")
+        + pd.to_timedelta(index % 365, unit="D")
+        + pd.to_timedelta(index % 86_400, unit="s")
+    )
+    density_base = 0.15 + (index % len(MODEL_NAMES)) * 0.23
+    velocity_base = 0.02 + (index % 200) / 2_000
+    error_base = (index % 1_000) / 10_000
+    artifacts = np.array([f"store/synthetic-run-{item:08d}" for item in index], dtype=object)
+
+    data = {
+        "uid": [f"synthetic-{item:08d}" for item in index],
+        "name": [
+            f"{model}-{version}-synthetic-{item:08d}"
+            for item, model, version in zip(index, models, versions, strict=True)
+        ],
+        "model": models,
+        "version": versions,
+        "date": dates.strftime("%Y-%m-%d %H:%M:%S"),
+        "modified": index % 10 < 3,
+        "density": density_base + (index % 17) / 1_000,
+        "velocity": velocity_base,
+        "error": error_base,
+        "runtime": 2.5 + (index % 300) / 10,
+        "memory_hwm": 4.0 + (index % 120) / 20,
+        "artifact": artifacts,
+        "artifact_path": artifacts,
+        "git_commit": [f"{(item * 2_654_435_761) % 0xFFFFFFFFFFFF:012x}" for item in index],
+        "git_branch": np.take(["main", "develop", "release", "feature/shock", "hotfix"], index % 5),
+        "git_tag": np.array(
+            [
+                f"tag-{major_item}.{minor_item}"
+                for major_item, minor_item in zip(major, minor, strict=True)
+            ]
+        ),
+        "code_version": versions,
+        "compiler": np.take(["gcc", "clang", "intel", "nvhpc"], index % 4),
+        "compiler_version": np.take(["12.3", "15.0", "2025.1", "24.7"], index % 4),
+        "mpi_version": np.take(["openmpi-5.0", "mpich-4.2", "intelmpi-2025"], index % 3),
+        "scheduler": np.take(["slurm", "pbs", "lsf"], index % 3),
+        "queue": np.take(["debug", "standard", "long", "gpu"], index % 4),
+        "partition": np.take(["cpu", "highmem", "gpu-a100", "gpu-h100"], index % 4),
+        "hpc_system": np.take(["archer2", "frontier", "perlmutter", "local"], index % 4),
+        "node_type": np.take(["zen3", "zen4", "ice-lake", "sapphire-rapids"], index % 4),
+        "job_name": [f"qa-shock-{item % 10_000:04d}" for item in index],
+        "job_id": [f"job-{1_000_000 + item}" for item in index],
+        "user_name": np.take(["ellis", "qa", "ci", "bench"], index % 4),
+        "project": np.take(["shock-bubble", "regression", "validation", "scaling"], index % 4),
+        "container_image": np.take(["qa-tool:latest", "solver:cpu", "solver:gpu", "post:stable"], index % 4),
+        "os_image": np.take(["rocky9", "ubuntu24.04", "sles15", "macos"], index % 4),
+        "input_deck": [f"case-{item % 2_500:04d}.yaml" for item in index],
+        "mesh_id": [f"mesh-{item % 1_000:04d}" for item in index],
+    }
+
+    for scalar_index, column in enumerate(SCALAR_METADATA_COLUMNS, start=1):
+        data[column] = (
+            (index % (97 + scalar_index)) * (0.01 * scalar_index)
+            + (index // (scalar_index + 3) % 11)
+        )
+
+    return pd.DataFrame(data)
+
+
+def write_synthetic_sqlite(dataframe: pd.DataFrame, db_path: Path) -> None:
+    """Write synthetic rows to SQLite efficiently."""
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA journal_mode = OFF")
+        connection.execute("PRAGMA synchronous = OFF")
+        connection.execute("PRAGMA temp_store = MEMORY")
+        dataframe.to_sql("runs", connection, if_exists="replace", index=False, chunksize=50_000)
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_uid ON runs (uid)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_model_version ON runs (model, version)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_version ON runs (version)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_date ON runs (date)")
+        connection.commit()
+
+
+def write_synthetic_duckdb(dataframe: pd.DataFrame, db_path: Path) -> None:
+    """Write synthetic rows to DuckDB efficiently."""
+    with duckdb.connect(str(db_path)) as connection:
+        connection.register("runs_frame", dataframe)
+        connection.execute(
+            """
+            CREATE OR REPLACE TABLE runs AS
+            SELECT * REPLACE (CAST(date AS TIMESTAMP) AS date)
+            FROM runs_frame
+            """
+        )
+
+
+def build_synthetic_scaled_databases(
+    output_dir: Path,
+    sizes: Sequence[int],
+    reuse_existing: bool,
+) -> dict[int, tuple[Path, Path]]:
+    """Build scaled SQLite and DuckDB pairs from synthetic rows."""
+    if not sizes:
+        raise ValueError("At least one database size is required.")
+    if any(size < 1 for size in sizes):
+        raise ValueError("Database sizes must be positive.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    database_paths = {}
+    for size in sizes:
+        sqlite_path, duckdb_path = scaled_database_paths(output_dir, size)
+        if not (reuse_existing and sqlite_path.exists() and duckdb_path.exists()):
+            sqlite_path.unlink(missing_ok=True)
+            duckdb_path.unlink(missing_ok=True)
+            rows = synthetic_runs(size)
+            write_synthetic_sqlite(rows, sqlite_path)
+            write_synthetic_duckdb(rows, duckdb_path)
+        database_paths[size] = (sqlite_path, duckdb_path)
+    return database_paths
+
+
+def build_store_scaled_databases(
     store_dir: Path,
     output_dir: Path,
     sizes: Sequence[int],
     seed: int,
+    reuse_existing: bool,
 ) -> dict[int, tuple[Path, Path]]:
     """Build SQLite and DuckDB database pairs from store metadata."""
     if not sizes:
@@ -571,11 +741,12 @@ def build_scaled_databases(
     database_paths = {}
     for size in sizes:
         sqlite_path, duckdb_path = scaled_database_paths(output_dir, size)
-        sqlite_path.unlink(missing_ok=True)
-        duckdb_path.unlink(missing_ok=True)
-        selected_rows = random.Random(seed + size).sample(rows, size)
-        write_sqlite(selected_rows, sqlite_path)
-        write_duckdb(selected_rows, duckdb_path)
+        if not (reuse_existing and sqlite_path.exists() and duckdb_path.exists()):
+            sqlite_path.unlink(missing_ok=True)
+            duckdb_path.unlink(missing_ok=True)
+            selected_rows = random.Random(seed + size).sample(rows, size)
+            write_sqlite(selected_rows, sqlite_path)
+            write_duckdb(selected_rows, duckdb_path)
         database_paths[size] = (sqlite_path, duckdb_path)
     return database_paths
 
@@ -587,9 +758,17 @@ def run_scaled_benchmarks(
     repeats: int,
     warmups: int,
     seed: int,
+    source: str,
+    reuse_existing: bool,
 ) -> list[ScaledQueryResult]:
     """Build scaled DB pairs and benchmark each pair."""
-    database_paths = build_scaled_databases(store_dir, output_dir, sizes, seed)
+    if source == "synthetic":
+        database_paths = build_synthetic_scaled_databases(output_dir, sizes, reuse_existing)
+    elif source == "store":
+        database_paths = build_store_scaled_databases(store_dir, output_dir, sizes, seed, reuse_existing)
+    else:
+        raise ValueError(f"Unknown source: {source}")
+
     results = []
     for size in sizes:
         sqlite_path, duckdb_path = database_paths[size]
@@ -610,7 +789,18 @@ def parser() -> argparse.ArgumentParser:
     argument_parser.add_argument(
         "--scaled",
         action="store_true",
-        help="Build scaled DB pairs from store metadata before benchmarking.",
+        help="Build scaled DB pairs before benchmarking.",
+    )
+    argument_parser.add_argument(
+        "--source",
+        choices=["synthetic", "store"],
+        default="synthetic",
+        help="Source for scaled DB generation.",
+    )
+    argument_parser.add_argument(
+        "--reuse-existing-scaled-dbs",
+        action="store_true",
+        help="Use existing scaled database files when both SQLite and DuckDB files are present.",
     )
     argument_parser.add_argument("--store-dir", default="store", type=Path)
     argument_parser.add_argument(
@@ -621,7 +811,7 @@ def parser() -> argparse.ArgumentParser:
     )
     argument_parser.add_argument(
         "--sizes",
-        default=[10, 100, 1_000, 10_000, 100_000],
+        default=DEFAULT_SIZES,
         nargs="+",
         type=int,
         help="Scaled database sizes to build and benchmark.",
@@ -650,17 +840,13 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the comparison script."""
     args = parser().parse_args(argv)
-    if not args.sqlite_db.exists():
-        raise FileNotFoundError(f"Could not find SQLite database: {args.sqlite_db}")
-    if not args.duckdb_db.exists():
-        raise FileNotFoundError(f"Could not find DuckDB database: {args.duckdb_db}")
     if args.repeats < 1:
         raise ValueError("--repeats must be at least 1")
     if args.warmups < 0:
         raise ValueError("--warmups must be at least 0")
 
     if args.scaled:
-        if not args.store_dir.exists():
+        if args.source == "store" and not args.store_dir.exists():
             raise FileNotFoundError(f"Could not find store directory: {args.store_dir}")
         scaled_results = run_scaled_benchmarks(
             args.store_dir,
@@ -669,6 +855,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.repeats,
             args.warmups,
             args.seed,
+            args.source,
+            args.reuse_existing_scaled_dbs,
         )
         report = scaled_markdown_table(scaled_results)
         args.output_file.parent.mkdir(parents=True, exist_ok=True)
