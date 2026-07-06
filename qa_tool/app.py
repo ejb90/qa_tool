@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import tarfile
 import tempfile
 from collections.abc import Sequence
@@ -11,6 +12,7 @@ from typing import Any
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 from sqlalchemy import create_engine
@@ -33,6 +35,9 @@ TOP_SUMMARY_LABELS = {
     "models": "Models",
     "total_runtime": "Total runtime",
 }
+TIME_COLUMN_PATTERN = re.compile(r"(^|[\s_-])time([\s_-]|$)|^t$", re.IGNORECASE)
+MATERIAL_COLUMN_PATTERN = re.compile(r"^materials?$", re.IGNORECASE)
+SERIES_SEPARATOR_PATTERN = re.compile(r"[\s_.:/|-]+")
 
 
 def normalize_run_columns(
@@ -76,8 +81,16 @@ def normalize_run_columns(
 
 @st.cache_data(show_spinner=False)
 def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFrame:
-    engine = create_engine(f"sqlite:///{db_path}")
-    runs = pd.read_sql_table("runs", engine)
+    path = Path(db_path)
+    if path.suffix == ".duckdb":
+        import duckdb
+
+        with duckdb.connect(str(path), read_only=True) as connection:
+            runs = connection.execute("SELECT * FROM runs").df()
+    else:
+        engine = create_engine(f"sqlite:///{path}")
+        runs = pd.read_sql_table("runs", engine)
+
     runs = normalize_run_columns(runs, model_column, version_column)
     if not pd.api.types.is_datetime64_any_dtype(runs["date"]):
         runs["date"] = pd.to_datetime(runs["date"], format="%Y-%m-%d %H:%M:%S")
@@ -362,6 +375,20 @@ def run_display_name(row: pd.Series) -> str:
     return f"{row['model']} {row['version']} | {row['name']}"
 
 
+def run_option_match_index(run_options: pd.DataFrame, pasted_id: str) -> int | None:
+    if not pasted_id:
+        return None
+
+    pasted_id = pasted_id.strip()
+    matches = run_options[
+        (run_options["uid"].astype(str) == pasted_id)
+        | (run_options["name"].astype(str) == pasted_id)
+    ]
+    if matches.empty:
+        return None
+    return int(matches.index[0])
+
+
 def run_artifact_candidates(row: pd.Series, artifact_root: str) -> list[Path | str]:
     candidates: list[Path | str] = []
     artifact_path = row.get("artifact_path")
@@ -372,6 +399,38 @@ def run_artifact_candidates(row: pd.Series, artifact_root: str) -> list[Path | s
         root = Path(artifact_root)
         candidates.extend([root / str(row["uid"]), root / str(row["name"])])
     return candidates
+
+
+def first_local_artifact_path(row: pd.Series, artifact_root: str) -> Path | None:
+    for candidate in run_artifact_candidates(row, artifact_root):
+        if isinstance(candidate, str) and candidate.startswith("s3://"):
+            continue
+
+        path = Path(candidate)
+        if path.exists():
+            return path
+        parent = path.parent
+        metadata_path = parent / "metadata.json"
+        if metadata_path.exists() and any(parent.glob("*.parquet")):
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if str(metadata.get("uid", "")) == str(row.get("uid", "")):
+                return parent
+    return None
+
+
+def parquet_files_for_run(row: pd.Series, artifact_root: str) -> dict[str, Path]:
+    artifact_path = first_local_artifact_path(row, artifact_root)
+    if artifact_path is None:
+        return {}
+    if artifact_path.is_file():
+        return {artifact_path.name: artifact_path} if artifact_path.suffix.lower() == ".parquet" else {}
+    return {
+        parquet_file.name: parquet_file
+        for parquet_file in sorted(artifact_path.rglob("*.parquet"))
+    }
 
 
 def render_artifact_file(path: Path) -> None:
@@ -387,7 +446,7 @@ def render_artifact_file(path: Path) -> None:
         elif suffix == ".csv":
             st.dataframe(pd.read_csv(path), use_container_width=True)
         elif suffix == ".parquet":
-            st.dataframe(pd.read_parquet(path), use_container_width=True)
+            render_parquet_artifact(path)
         elif suffix in {".pkl", ".pickle"}:
             artifact = pd.read_pickle(path)
             if isinstance(artifact, pd.DataFrame):
@@ -412,6 +471,143 @@ def render_artifact_file(path: Path) -> None:
                 file_name=path.name,
                 use_container_width=True,
             )
+
+
+def find_time_column(dataframe: pd.DataFrame) -> str | None:
+    for column in dataframe.columns:
+        if TIME_COLUMN_PATTERN.search(str(column)):
+            return str(column)
+    return None
+
+
+def parquet_plot_key(path: Path, column: str) -> str:
+    safe_path = re.sub(r"\W+", "_", str(path))
+    safe_column = re.sub(r"\W+", "_", column)
+    return f"parquet_line_{safe_path}_{safe_column}"
+
+
+def material_column(dataframe: pd.DataFrame) -> str | None:
+    for column in dataframe.columns:
+        if MATERIAL_COLUMN_PATTERN.search(str(column)):
+            return str(column)
+    return None
+
+
+def split_series_column(column: str, default_thing: str | None = None) -> tuple[str, str]:
+    first_part = SERIES_SEPARATOR_PATTERN.split(column, maxsplit=1)[0].lower()
+    if first_part in {"material", "mat"}:
+        return default_thing or column, column
+
+    parts = [part for part in SERIES_SEPARATOR_PATTERN.split(column) if part]
+    if len(parts) >= 2:
+        return parts[0], "_".join(parts[1:])
+    return default_thing or column, column
+
+
+def wide_parquet_series(
+    dataframe: pd.DataFrame,
+    time_column: str,
+    default_thing: str | None = None,
+) -> dict[str, pd.DataFrame]:
+    numeric_columns = [
+        column
+        for column in dataframe.select_dtypes(include="number").columns
+        if str(column) != time_column
+    ]
+    series_frames: dict[str, list[pd.DataFrame]] = {}
+    for column in numeric_columns:
+        thing, material = split_series_column(str(column), default_thing)
+        series_frame = dataframe[[time_column, column]].rename(columns={column: "value"})
+        series_frame["material"] = material
+        series_frames.setdefault(thing, []).append(series_frame)
+    return {
+        thing: pd.concat(frames, ignore_index=True)
+        for thing, frames in series_frames.items()
+    }
+
+
+def long_parquet_series(
+    dataframe: pd.DataFrame,
+    time_column: str,
+    material_column_name: str,
+) -> dict[str, pd.DataFrame]:
+    value_columns = [
+        column
+        for column in dataframe.select_dtypes(include="number").columns
+        if str(column) != time_column
+    ]
+    return {
+        str(column): dataframe[[time_column, material_column_name, column]].rename(
+            columns={material_column_name: "material", column: "value"}
+        )
+        for column in value_columns
+    }
+
+
+def parquet_series_by_thing(
+    dataframe: pd.DataFrame,
+    time_column: str,
+    default_thing: str | None = None,
+) -> dict[str, pd.DataFrame]:
+    material_column_name = material_column(dataframe)
+    if material_column_name is not None:
+        return long_parquet_series(dataframe, time_column, material_column_name)
+    return wide_parquet_series(dataframe, time_column, default_thing)
+
+
+def selected_materials(path: Path, thing: str, materials: list[str]) -> list[str]:
+    checkbox_columns = st.columns(min(4, len(materials)))
+    selected = []
+    for index, material in enumerate(materials):
+        enabled = checkbox_columns[index % len(checkbox_columns)].checkbox(
+            material,
+            value=True,
+            key=parquet_plot_key(path, f"{thing}_{material}"),
+        )
+        if enabled:
+            selected.append(material)
+    return selected
+
+
+def render_parquet_series_plot(path: Path, thing: str, series_data: pd.DataFrame, time_column: str) -> None:
+    materials = sorted(series_data["material"].astype(str).unique())
+    st.markdown(f"**{thing}**")
+    selected = selected_materials(path, thing, materials)
+    if not selected:
+        st.info("Select at least one material to plot.")
+        return
+
+    plot_data = series_data[series_data["material"].astype(str).isin(selected)]
+    fig = px.line(
+        plot_data,
+        x=time_column,
+        y="value",
+        color="material",
+        markers=False,
+        title=f"{path.name}: {thing}",
+    )
+    fig.update_layout(
+        height=420,
+        margin={"l": 10, "r": 10, "t": 44, "b": 10},
+        xaxis_title=time_column,
+        yaxis_title=thing,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_parquet_time_plots(path: Path, dataframe: pd.DataFrame) -> None:
+    time_column = find_time_column(dataframe)
+    if time_column is None:
+        return
+
+    for thing, series_data in parquet_series_by_thing(dataframe, time_column, path.stem).items():
+        render_parquet_series_plot(path, thing, series_data, time_column)
+
+
+def render_parquet_artifact(path: Path) -> None:
+    dataframe = pd.read_parquet(path)
+    render_parquet_time_plots(path, dataframe)
+    st.dataframe(dataframe, use_container_width=True)
 
 
 def is_tar_artifact(path: Path) -> bool:
@@ -492,17 +688,9 @@ def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
 
     run_options = filtered.sort_values(["model", "version", "name"]).reset_index(drop=True)
     pasted_id = st.text_input("Paste run UID or name", value="")
-    matched_index = None
-    if pasted_id:
-        pasted_id = pasted_id.strip()
-        matches = run_options[
-            (run_options["uid"].astype(str) == pasted_id)
-            | (run_options["name"].astype(str) == pasted_id)
-        ]
-        if matches.empty:
-            st.warning("No run matched that UID or name in the current filters.")
-        else:
-            matched_index = int(matches.index[0])
+    matched_index = run_option_match_index(run_options, pasted_id)
+    if pasted_id and matched_index is None:
+        st.warning("No run matched that UID or name in the current filters.")
 
     selected_index = st.selectbox(
         "Run",
@@ -521,6 +709,249 @@ def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
     st.dataframe(details, use_container_width=True, hide_index=True)
 
     show_run_artifacts(selected_run, settings["database"].get("artifact_root", ""))
+
+
+def build_run_scalar_comparison(top_run: pd.Series, bottom_run: pd.Series, metrics: list[str]) -> pd.DataFrame:
+    rows = []
+    for metric in metrics:
+        top_value = top_run.get(metric)
+        bottom_value = bottom_run.get(metric)
+        if pd.isna(top_value) or pd.isna(bottom_value):
+            delta = None
+            ratio = None
+        else:
+            delta = bottom_value - top_value
+            ratio = None if top_value == 0 else bottom_value / top_value
+        rows.append(
+            {
+                "metric": metric,
+                "top": top_value,
+                "bottom": bottom_value,
+                "bottom_minus_top": delta,
+                "bottom_over_top": ratio,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compare_run_plot_key(top_path: Path, bottom_path: Path, thing: str, material: str) -> str:
+    key_text = f"{top_path}_{bottom_path}_{thing}_{material}"
+    return "compare_run_" + re.sub(r"\W+", "_", key_text)
+
+
+def selected_compare_materials(
+    top_path: Path,
+    bottom_path: Path,
+    thing: str,
+    materials: list[str],
+) -> list[str]:
+    checkbox_columns = st.columns(min(4, len(materials)))
+    selected = []
+    for index, material in enumerate(materials):
+        enabled = checkbox_columns[index % len(checkbox_columns)].checkbox(
+            material,
+            value=True,
+            key=compare_run_plot_key(top_path, bottom_path, thing, material),
+        )
+        if enabled:
+            selected.append(material)
+    return selected
+
+
+def parquet_thing_series(path: Path) -> tuple[str | None, dict[str, pd.DataFrame]]:
+    dataframe = pd.read_parquet(path)
+    time_column = find_time_column(dataframe)
+    if time_column is None:
+        return None, {}
+    return time_column, parquet_series_by_thing(dataframe, time_column, path.stem)
+
+
+def compare_run_parquet_pairs(
+    top_run: pd.Series,
+    bottom_run: pd.Series,
+    artifact_root: str,
+) -> list[dict[str, object]]:
+    top_files = parquet_files_for_run(top_run, artifact_root)
+    bottom_files = parquet_files_for_run(bottom_run, artifact_root)
+    pairs = []
+    for name in sorted(set(top_files).intersection(bottom_files)):
+        top_path = top_files[name]
+        bottom_path = bottom_files[name]
+        top_time_column, top_groups = parquet_thing_series(top_path)
+        bottom_time_column, bottom_groups = parquet_thing_series(bottom_path)
+        if top_time_column is None or bottom_time_column is None:
+            continue
+
+        shared_things = sorted(set(top_groups).intersection(bottom_groups))
+        if not shared_things:
+            continue
+
+        pairs.append(
+            {
+                "name": name,
+                "top_path": top_path,
+                "bottom_path": bottom_path,
+                "top_time_column": top_time_column,
+                "bottom_time_column": bottom_time_column,
+                "top_groups": top_groups,
+                "bottom_groups": bottom_groups,
+                "shared_things": shared_things,
+            }
+        )
+    return pairs
+
+
+def render_compare_run_series_plot(
+    top_path: Path,
+    bottom_path: Path,
+    thing: str,
+    top_series: pd.DataFrame,
+    bottom_series: pd.DataFrame,
+    top_time_column: str,
+    bottom_time_column: str,
+    top_label: str,
+    bottom_label: str,
+    plot_height: int,
+) -> None:
+    top_materials = set(top_series["material"].astype(str).unique())
+    bottom_materials = set(bottom_series["material"].astype(str).unique())
+    shared_materials = sorted(top_materials.intersection(bottom_materials))
+    if not shared_materials:
+        st.info(f"No shared materials for `{thing}`.")
+        return
+
+    st.markdown(f"**{thing}**")
+    selected_materials_for_plot = selected_compare_materials(
+        top_path,
+        bottom_path,
+        thing,
+        shared_materials,
+    )
+    if not selected_materials_for_plot:
+        st.info("Select at least one material to plot.")
+        return
+
+    figure = go.Figure()
+    palette = px.colors.qualitative.Plotly
+    color_by_material = {
+        material: palette[index % len(palette)]
+        for index, material in enumerate(shared_materials)
+    }
+    for material in selected_materials_for_plot:
+        top_material_data = top_series[top_series["material"].astype(str) == material]
+        bottom_material_data = bottom_series[bottom_series["material"].astype(str) == material]
+        figure.add_trace(
+            go.Scatter(
+                x=top_material_data[top_time_column],
+                y=top_material_data["value"],
+                mode="lines",
+                name=f"{material} ({top_label})",
+                legendgroup=material,
+                line={"color": color_by_material[material], "dash": "solid"},
+            )
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=bottom_material_data[bottom_time_column],
+                y=bottom_material_data["value"],
+                mode="lines",
+                name=f"{material} ({bottom_label})",
+                legendgroup=material,
+                line={"color": color_by_material[material], "dash": "dash"},
+            )
+        )
+
+    figure.update_layout(
+        height=plot_height,
+        margin={"l": 10, "r": 10, "t": 44, "b": 10},
+        title=f"{top_path.name}: {thing}",
+        xaxis_title=top_time_column,
+        yaxis_title=thing,
+    )
+    st.plotly_chart(figure, use_container_width=True)
+
+
+def show_compare_run_artifacts(
+    top_run: pd.Series,
+    bottom_run: pd.Series,
+    artifact_root: str,
+    plot_height: int,
+) -> None:
+    top_label = "top"
+    bottom_label = "bottom"
+    for pair in compare_run_parquet_pairs(top_run, bottom_run, artifact_root):
+        top_path = pair["top_path"]
+        bottom_path = pair["bottom_path"]
+        with st.expander(str(pair["name"]), expanded=False):
+            st.caption(f"Top: `{top_path}`")
+            st.caption(f"Bottom: `{bottom_path}`")
+            for thing in pair["shared_things"]:
+                render_compare_run_series_plot(
+                    top_path=top_path,
+                    bottom_path=bottom_path,
+                    thing=thing,
+                    top_series=pair["top_groups"][thing],
+                    bottom_series=pair["bottom_groups"][thing],
+                    top_time_column=pair["top_time_column"],
+                    bottom_time_column=pair["bottom_time_column"],
+                    top_label=top_label,
+                    bottom_label=bottom_label,
+                    plot_height=plot_height,
+                )
+
+
+def show_compare_run(
+    filtered: pd.DataFrame,
+    settings: dict[str, Any],
+    metrics: list[str],
+    plot_height: int,
+) -> None:
+    if filtered.empty:
+        st.info("No runs match the current filters.")
+        return
+    if len(filtered) < 2:
+        st.info("At least two runs are needed for a comparison.")
+        return
+
+    run_options = filtered.sort_values(["model", "version", "name"]).reset_index(drop=True)
+    selector_columns = st.columns(2)
+    top_pasted_id = selector_columns[0].text_input("Paste top run UID or name", value="")
+    bottom_pasted_id = selector_columns[1].text_input("Paste bottom run UID or name", value="")
+    top_matched_index = run_option_match_index(run_options, top_pasted_id)
+    bottom_matched_index = run_option_match_index(run_options, bottom_pasted_id)
+    if top_pasted_id and top_matched_index is None:
+        selector_columns[0].warning("No run matched that UID or name in the current filters.")
+    if bottom_pasted_id and bottom_matched_index is None:
+        selector_columns[1].warning("No run matched that UID or name in the current filters.")
+    top_index = selector_columns[0].selectbox(
+        "Top run",
+        run_options.index,
+        index=top_matched_index or 0,
+        format_func=lambda index: run_display_name(run_options.loc[index]),
+    )
+    bottom_index = selector_columns[1].selectbox(
+        "Bottom run",
+        run_options.index,
+        index=bottom_matched_index or (1 if len(run_options) > 1 else 0),
+        format_func=lambda index: run_display_name(run_options.loc[index]),
+    )
+    top_run = run_options.loc[top_index]
+    bottom_run = run_options.loc[bottom_index]
+    if top_run["uid"] == bottom_run["uid"]:
+        st.info("Choose two different runs.")
+        return
+
+    st.subheader("Scalar Comparison")
+    st.dataframe(
+        build_run_scalar_comparison(top_run, bottom_run, metrics),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    artifact_root = settings["database"].get("artifact_root", "")
+    if compare_run_parquet_pairs(top_run, bottom_run, artifact_root):
+        st.subheader("Artifact Time Series")
+        show_compare_run_artifacts(top_run, bottom_run, artifact_root, plot_height)
 
 
 def aggregate_runs(
@@ -1006,7 +1437,7 @@ def main(settings_path: str | Path | None = None) -> None:
 
     db_path = Path(settings["database"]["path"])
     if not db_path.exists():
-        st.error(f"Could not find {db_path}. Run `uv run python -m qa_tool.sqlite_store` first.")
+        st.error(f"Could not find {db_path}. Run `uv run python -m qa_tool.load_dummy_data` first.")
         return
 
     show_intro(settings, db_path)
@@ -1053,6 +1484,11 @@ def main(settings_path: str | Path | None = None) -> None:
                 show_tab_summary(filtered, settings, "compare_versions", metrics),
                 show_version_comparison(filtered, metrics, plot_height),
             ),
+        ),
+        (
+            "compare_run",
+            "Compare Run",
+            lambda: show_compare_run(filtered, settings, metrics, plot_height),
         ),
         (
             "pie_charts",

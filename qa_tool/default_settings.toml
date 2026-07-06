@@ -3,8 +3,8 @@ title = "Shock Bubble Interaction Run Database"
 layout = "wide"
 
 [database]
-path = "runs.db"
-artifact_root = "./artifacts"
+path = "runs.duckdb"
+artifact_root = "./store"
 
 [database.columns]
 model = "model"
@@ -49,6 +49,11 @@ top = []
 metrics = []
 aggregations = []
 
+[summaries.tabs.compare_run]
+top = []
+metrics = []
+aggregations = []
+
 [summaries.tabs.pie_charts]
 top = []
 metrics = []
@@ -64,6 +69,7 @@ all_runs = true
 versions = true
 models = true
 compare_versions = true
+compare_run = true
 pie_charts = true
 run_detail = true
 

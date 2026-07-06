@@ -33,8 +33,12 @@ def load_toml_file(path: Path) -> dict[str, Any]:
 
 
 def load_packaged_defaults() -> dict[str, Any]:
-    settings_resource = files(PACKAGE_NAME).joinpath(DEFAULT_SETTINGS_RESOURCE)
-    return tomllib.loads(settings_resource.read_text(encoding="utf-8"))
+    try:
+        settings_resource = files(PACKAGE_NAME).joinpath(DEFAULT_SETTINGS_RESOURCE)
+        settings_text = settings_resource.read_text(encoding="utf-8")
+    except ModuleNotFoundError:
+        settings_text = Path(__file__).with_name(DEFAULT_SETTINGS_RESOURCE).read_text(encoding="utf-8")
+    return tomllib.loads(settings_text)
 
 
 def override_settings_path(settings_path: str | Path | None = None) -> Path | None:

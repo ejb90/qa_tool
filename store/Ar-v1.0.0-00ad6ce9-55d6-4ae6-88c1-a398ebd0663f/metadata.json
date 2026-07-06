@@ -1,0 +1,14 @@
+{
+  "name": "Ar-v1.0.0-00ad6ce9-55d6-4ae6-88c1-a398ebd0663f",
+  "version": "v1.0.0",
+  "model": "Ar",
+  "date": "2026-01-22T16:46:31",
+  "uid": "00ad6ce9-55d6-4ae6-88c1-a398ebd0663f",
+  "modified": true,
+  "density": 1.649311559582599,
+  "velocity": 0.0077578515924008285,
+  "error": 0.09539627636518401,
+  "runtime": 6.658074985196537,
+  "memory_hwm": 6.996076536411179,
+  "artifact": "store/Ar-v1.0.0-00ad6ce9-55d6-4ae6-88c1-a398ebd0663f"
+}
