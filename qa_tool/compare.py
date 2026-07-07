@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .exports import export_name
+try:
+    from qa_tool.exports import export_name
+except ModuleNotFoundError:
+    from exports import export_name
 
 
 COLLECTION_LABEL_COLUMN = "__collection__"

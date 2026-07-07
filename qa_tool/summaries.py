@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import streamlit as st
+
+try:
+    from qa_tool.settings import configured_metrics
+except ModuleNotFoundError:
+    from settings import configured_metrics
+
+
+SUMMARY_AGGREGATIONS = {
+    "mean": "Mean",
+    "min": "Min",
+    "max": "Max",
+}
+TOP_SUMMARY_LABELS = {
+    "runs": "Runs",
+    "versions": "Versions",
+    "models": "Models",
+    "total_runtime": "Total runtime",
+}
+
+def show_intro(settings: dict[str, Any], db_path: Path) -> None:
+    intro = settings["intro"]
+    description = intro.get("description", "")
+    links = [
+        link
+        for link in intro.get("links", [])
+        if link.get("label") and link.get("url")
+    ]
+    artifact_root = settings["database"].get("artifact_root", "")
+
+    if description:
+        st.markdown(description)
+
+    if links:
+        link_markdown = " | ".join(
+            f"[{link['label']}]({link['url']})"
+            for link in links
+        )
+        st.markdown(link_markdown)
+
+    info_items = []
+    if intro.get("show_database_path", True):
+        info_items.append(f"Database: `{db_path}`")
+    if intro.get("show_artifact_root", True) and artifact_root:
+        info_items.append(f"Artifact root: `{artifact_root}`")
+    if info_items:
+        st.caption("  |  ".join(info_items))
+
+def show_summary(
+    filtered: pd.DataFrame,
+    top_items: list[str],
+    metrics: list[str],
+    aggregations: list[str],
+) -> None:
+    top_items = [item for item in top_items if item in TOP_SUMMARY_LABELS]
+    if top_items:
+        top_columns = st.columns(min(4, len(top_items)))
+        for index, item in enumerate(top_items):
+            if item == "runs":
+                value = len(filtered)
+            elif item == "versions":
+                value = filtered["version"].nunique()
+            elif item == "models":
+                value = filtered["model"].nunique()
+            elif item == "total_runtime" and not filtered.empty:
+                value = f"{filtered['runtime'].sum():.4g}"
+            else:
+                value = "n/a"
+            top_columns[index % len(top_columns)].metric(TOP_SUMMARY_LABELS[item], value)
+
+    summary_items = [
+        (metric, aggregation)
+        for metric in metrics
+        for aggregation in aggregations
+    ]
+    if not summary_items:
+        return
+
+    summary_columns = st.columns(min(4, len(summary_items)))
+    if filtered.empty:
+        for index, (metric, aggregation) in enumerate(summary_items):
+            label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
+            summary_columns[index % len(summary_columns)].metric(label, "n/a")
+        return
+
+    for index, (metric, aggregation) in enumerate(summary_items):
+        label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
+        value = getattr(filtered[metric], aggregation)()
+        summary_columns[index % len(summary_columns)].metric(label, f"{value:.4g}")
+
+def tab_summary_options(
+    settings: dict[str, Any],
+    tab_key: str,
+    available_metrics: list[str],
+) -> tuple[list[str], list[str], list[str]]:
+    default_summary = settings["summaries"]["default"]
+    tab_summary = settings["summaries"]["tabs"].get(tab_key, {})
+    fallback_top = ["runs", "versions", "models", "total_runtime"]
+    fallback_metrics = ["runtime", "memory_hwm"]
+    fallback_aggregations = ["mean", "max"]
+    top_items = tab_summary.get("top", default_summary.get("top", fallback_top))
+    configured_summary_metrics = tab_summary.get(
+        "metrics",
+        default_summary.get("metrics", fallback_metrics),
+    )
+    configured_aggregations = tab_summary.get(
+        "aggregations",
+        default_summary.get("aggregations", fallback_aggregations),
+    )
+    summary_metrics = configured_metrics(
+        configured_summary_metrics,
+        available_metrics,
+        default_summary.get("metrics", fallback_metrics),
+    )
+    summary_aggregations = [
+        aggregation
+        for aggregation in configured_aggregations
+        if aggregation in SUMMARY_AGGREGATIONS
+    ]
+    return top_items, summary_metrics, summary_aggregations
+
+def show_tab_summary(
+    filtered: pd.DataFrame,
+    settings: dict[str, Any],
+    tab_key: str,
+    available_metrics: list[str],
+) -> None:
+    top_items, summary_metrics, summary_aggregations = tab_summary_options(
+        settings,
+        tab_key,
+        available_metrics,
+    )
+    show_summary(filtered, top_items, summary_metrics, summary_aggregations)
+
+def modified_filtered_runs(filtered: pd.DataFrame, tab_key: str) -> pd.DataFrame:
+    if "modified" not in filtered.columns:
+        return filtered
+
+    include_modified = st.checkbox(
+        "Include modified runs",
+        value=False,
+        key=f"{tab_key}_include_modified_runs",
+    )
+    if include_modified:
+        return filtered
+    return filtered[~filtered["modified"]].copy()
