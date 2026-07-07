@@ -49,6 +49,11 @@ top = []
 metrics = []
 aggregations = []
 
+[summaries.tabs.compare_collection]
+top = []
+metrics = []
+aggregations = []
+
 [summaries.tabs.compare_run]
 top = []
 metrics = []
@@ -69,9 +74,17 @@ all_runs = true
 versions = true
 models = true
 compare_versions = true
+compare_collection = true
 compare_run = true
 pie_charts = true
 run_detail = true
 
 [plots]
 height = 520
+
+[comparison.color_bounds]
+# Optional fixed absolute bounds for coloured comparison cells.
+# Unspecified metrics keep the current auto-scale behaviour.
+# density = 0.1
+# velocity = 0.05
+# runtime = 10.0

@@ -5,6 +5,7 @@ import json
 import re
 import tarfile
 import tempfile
+import zipfile
 from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
@@ -38,6 +39,303 @@ TOP_SUMMARY_LABELS = {
 TIME_COLUMN_PATTERN = re.compile(r"(^|[\s_-])time([\s_-]|$)|^t$", re.IGNORECASE)
 MATERIAL_COLUMN_PATTERN = re.compile(r"^materials?$", re.IGNORECASE)
 SERIES_SEPARATOR_PATTERN = re.compile(r"[\s_.:/|-]+")
+COLLECTION_LABEL_COLUMN = "__collection__"
+COMPARISON_COLOR_SCHEMES = {
+    "Red / blue": {
+        "negative": (31, 119, 180),
+        "positive": (214, 39, 40),
+        "sequential": (44, 160, 120),
+    },
+    "Blue / orange": {
+        "negative": (0, 114, 178),
+        "positive": (230, 159, 0),
+        "sequential": (0, 158, 115),
+    },
+    "Purple / green": {
+        "negative": (117, 112, 179),
+        "positive": (27, 158, 119),
+        "sequential": (102, 166, 30),
+    },
+}
+
+
+def export_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "data"
+
+
+def dataframes_to_zip(dataframes: dict[str, pd.DataFrame]) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, dataframe in dataframes.items():
+            archive.writestr(
+                f"{export_name(name)}.csv",
+                dataframe.to_csv(index=False),
+            )
+    return buffer.getvalue()
+
+
+def comparison_metadata(
+    base_label: str,
+    test_label: str,
+    base_runs: pd.DataFrame,
+    test_runs: pd.DataFrame,
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"item": "base_label", "value": base_label},
+            {"item": "test_label", "value": test_label},
+            {"item": "base_run_count", "value": len(base_runs)},
+            {"item": "test_run_count", "value": len(test_runs)},
+            {"item": "base_model_count", "value": base_runs["model"].nunique()},
+            {"item": "test_model_count", "value": test_runs["model"].nunique()},
+        ]
+    )
+
+
+def comparison_coverage(
+    base_runs: pd.DataFrame,
+    base_label: str,
+    test_runs: pd.DataFrame,
+    test_label: str,
+) -> pd.DataFrame:
+    base_models = set(base_runs["model"].dropna().astype(str))
+    test_models = set(test_runs["model"].dropna().astype(str))
+    rows = []
+    for model in sorted(base_models | test_models):
+        in_base = model in base_models
+        in_test = model in test_models
+        if in_base and in_test:
+            status = "shared"
+        elif in_base:
+            status = f"only_{export_name(base_label)}"
+        else:
+            status = f"only_{export_name(test_label)}"
+        rows.append(
+            {
+                "model": model,
+                "in_base": in_base,
+                "in_test": in_test,
+                "status": status,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def build_collection_metric_deltas(
+    base_runs: pd.DataFrame,
+    base_label: str,
+    test_runs: pd.DataFrame,
+    test_label: str,
+    metrics: list[str],
+) -> pd.DataFrame:
+    base_summary = (
+        base_runs.groupby("model")[metrics]
+        .agg(["mean", "std", "count"])
+        .stack(level=0, future_stack=True)
+        .reset_index()
+        .rename(
+            columns={
+                "level_1": "metric",
+                "mean": "base_mean",
+                "std": "base_std",
+                "count": "base_runs",
+            }
+        )
+    )
+    test_summary = (
+        test_runs.groupby("model")[metrics]
+        .agg(["mean", "std", "count"])
+        .stack(level=0, future_stack=True)
+        .reset_index()
+        .rename(
+            columns={
+                "level_1": "metric",
+                "mean": "test_mean",
+                "std": "test_std",
+                "count": "test_runs",
+            }
+        )
+    )
+    comparison = base_summary.merge(
+        test_summary,
+        on=["model", "metric"],
+        how="outer",
+    ).sort_values(["metric", "model"])
+    comparison["base_label"] = base_label
+    comparison["test_label"] = test_label
+    comparison["mean_delta"] = comparison["test_mean"] - comparison["base_mean"]
+    comparison["percent_mean_delta"] = 100 * comparison["mean_delta"] / comparison["base_mean"]
+    comparison.loc[comparison["base_mean"] == 0, "percent_mean_delta"] = pd.NA
+    comparison["uncertainty"] = (
+        (comparison["base_std"].fillna(0.0) ** 2 / comparison["base_runs"])
+        + (comparison["test_std"].fillna(0.0) ** 2 / comparison["test_runs"])
+    ) ** 0.5
+    return comparison[
+        [
+            "base_label",
+            "test_label",
+            "model",
+            "metric",
+            "base_mean",
+            "test_mean",
+            "mean_delta",
+            "percent_mean_delta",
+            "base_std",
+            "test_std",
+            "uncertainty",
+            "base_runs",
+            "test_runs",
+        ]
+    ]
+
+
+def show_export_download(
+    label: str,
+    dataframes: dict[str, pd.DataFrame],
+    file_name: str,
+    key: str,
+) -> None:
+    if not dataframes:
+        return
+    st.download_button(
+        label,
+        data=dataframes_to_zip(dataframes),
+        file_name=file_name,
+        mime="application/zip",
+        key=key,
+        use_container_width=True,
+    )
+
+
+def comparison_color_bounds(settings: dict[str, Any]) -> dict[str, float]:
+    configured_bounds = settings.get("comparison", {}).get("color_bounds", {})
+    return {
+        str(metric): float(bound)
+        for metric, bound in configured_bounds.items()
+        if not isinstance(bound, bool) and isinstance(bound, int | float) and bound > 0
+    }
+
+
+def comparison_column_bound(column: str, bounds: dict[str, float]) -> float | None:
+    if column in bounds:
+        return bounds[column]
+    for prefix in ("delta_", "uncertainty_"):
+        if column.startswith(prefix):
+            metric = column.removeprefix(prefix)
+            return bounds.get(metric)
+    return None
+
+
+def select_comparison_color_scheme(key: str) -> str:
+    return st.selectbox(
+        "Cell colours",
+        ["Red / blue", "Blue / orange", "Purple / green", "Off"],
+        index=0,
+        key=key,
+    )
+
+
+def styled_comparison_table(
+    dataframe: pd.DataFrame,
+    settings: dict[str, Any],
+    color_scheme: str = "Red / blue",
+) -> Any:
+    if color_scheme == "Off":
+        return dataframe
+
+    color_bounds = comparison_color_bounds(settings)
+    colours = COMPARISON_COLOR_SCHEMES.get(
+        color_scheme,
+        COMPARISON_COLOR_SCHEMES["Red / blue"],
+    )
+
+    def alpha_style(red: int, green: int, blue: int, fraction: float) -> str:
+        fraction = min(1.0, max(0.0, fraction))
+        alpha = 0.18 + 0.62 * fraction
+        return f"background-color: rgba({red}, {green}, {blue}, {alpha:.3f})"
+
+    def delta_styles(values: pd.Series, bound: float | None = None) -> list[str]:
+        numeric_values = pd.to_numeric(values, errors="coerce")
+        max_abs = bound or numeric_values.abs().max()
+        if pd.isna(max_abs) or max_abs == 0:
+            return [""] * len(values)
+        styles = []
+        for value in numeric_values:
+            if pd.isna(value) or value == 0:
+                styles.append("")
+            elif value > 0:
+                styles.append(alpha_style(*colours["positive"], float(value / max_abs)))
+            else:
+                styles.append(alpha_style(*colours["negative"], float(abs(value) / max_abs)))
+        return styles
+
+    def sequential_styles(values: pd.Series) -> list[str]:
+        numeric_values = pd.to_numeric(values, errors="coerce")
+        minimum = numeric_values.min()
+        maximum = numeric_values.max()
+        if pd.isna(minimum) or pd.isna(maximum) or minimum == maximum:
+            return [""] * len(values)
+        return [
+            ""
+            if pd.isna(value)
+            else alpha_style(*colours["sequential"], float((value - minimum) / (maximum - minimum)))
+            for value in numeric_values
+        ]
+
+    def metric_row_styles(row: pd.Series) -> list[str]:
+        styles = pd.Series("", index=row.index)
+        metric = str(row.get("metric", ""))
+        bound = color_bounds.get(metric)
+        if bound is None:
+            return styles.tolist()
+        for column in ("bottom_minus_top", "mean_delta", "delta"):
+            if column not in row.index:
+                continue
+            value = pd.to_numeric(pd.Series([row[column]]), errors="coerce").iloc[0]
+            if pd.isna(value) or value == 0:
+                continue
+            fraction = min(1.0, abs(float(value)) / bound)
+            if value > 0:
+                styles[column] = alpha_style(*colours["positive"], fraction)
+            else:
+                styles[column] = alpha_style(*colours["negative"], fraction)
+        return styles.tolist()
+
+    style = dataframe.style
+    delta_columns = [
+        column
+        for column in dataframe.columns
+        if str(column).startswith("delta_")
+        or str(column).endswith("_minus_top")
+        or str(column) in {"delta", "mean_delta", "percent_mean_delta"}
+    ]
+    for column in delta_columns:
+        values = pd.to_numeric(dataframe[column], errors="coerce").dropna()
+        if values.empty:
+            continue
+        style = style.apply(
+            delta_styles,
+            subset=[column],
+            axis=0,
+            bound=comparison_column_bound(str(column), color_bounds),
+        )
+
+    sequential_columns = [
+        column
+        for column in dataframe.columns
+        if str(column).startswith("uncertainty")
+        or str(column) in {"base_std", "test_std", "std"}
+    ]
+    for column in sequential_columns:
+        values = pd.to_numeric(dataframe[column], errors="coerce").dropna()
+        if values.empty or values.max() == values.min():
+            continue
+        style = style.apply(sequential_styles, subset=[column], axis=0)
+
+    if "metric" in dataframe.columns and color_bounds:
+        style = style.apply(metric_row_styles, axis=1)
+
+    return style
 
 
 def normalize_run_columns(
@@ -172,10 +470,10 @@ def filter_runs(
 
 
 def show_downloads(filtered: pd.DataFrame) -> None:
-    with st.expander("Downloads", expanded=False):
+    with st.expander("Filtered raw run downloads", expanded=False):
         csv_column, json_column, dataframe_column = st.columns(3)
         csv_column.download_button(
-            "Download CSV",
+            "Download filtered rows CSV",
             data=dataframe_to_csv(filtered),
             file_name="filtered_runs.csv",
             mime="text/csv",
@@ -183,7 +481,7 @@ def show_downloads(filtered: pd.DataFrame) -> None:
             use_container_width=True,
         )
         json_column.download_button(
-            "Download JSON",
+            "Download filtered rows JSON",
             data=dataframe_to_json(filtered),
             file_name="filtered_runs.json",
             mime="application/json",
@@ -191,7 +489,7 @@ def show_downloads(filtered: pd.DataFrame) -> None:
             use_container_width=True,
         )
         dataframe_column.download_button(
-            "Download DataFrame",
+            "Download filtered rows DataFrame",
             data=dataframe_to_pickle(filtered),
             file_name="filtered_runs.pkl",
             mime="application/octet-stream",
@@ -356,8 +654,61 @@ def show_models_tab(
 
 def show_all_runs(filtered: pd.DataFrame) -> None:
     st.subheader("Runs")
+    if filtered.empty:
+        st.info("No runs match the current filters.")
+        return
+
+    searchable_columns = [
+        column
+        for column in ["uid", "name", "model", "version", "artifact", "artifact_path"]
+        if column in filtered.columns
+    ]
+    search_text = st.text_input(
+        "Search runs",
+        placeholder="UID, name, model, version, artifact...",
+        key="all_runs_search",
+    ).strip()
+    table_data = filtered.sort_values("date", ascending=False) if "date" in filtered.columns else filtered
+    if search_text and searchable_columns:
+        search_mask = pd.Series(False, index=filtered.index)
+        for column in searchable_columns:
+            search_mask |= filtered[column].fillna("").astype(str).str.contains(
+                search_text,
+                case=False,
+                regex=False,
+                na=False,
+            )
+        table_data = filtered[search_mask]
+
+    if table_data.empty:
+        st.info("No runs match the table search.")
+        return
+
+    pagination_columns = st.columns([1, 1, 3])
+    page_size = pagination_columns[0].selectbox(
+        "Rows per page",
+        [100, 250, 500, 1000],
+        index=1,
+        key="all_runs_page_size",
+    )
+    page_count = max(1, (len(table_data) - 1) // page_size + 1)
+    page_number = pagination_columns[1].number_input(
+        "Page",
+        min_value=1,
+        max_value=page_count,
+        value=min(st.session_state.get("all_runs_page_number", 1), page_count),
+        step=1,
+        key="all_runs_page_number",
+    )
+    start_index = (page_number - 1) * page_size
+    end_index = min(start_index + page_size, len(table_data))
+    page_data = table_data.iloc[start_index:end_index]
+    pagination_columns[2].caption(
+        f"Showing {start_index + 1:,}-{end_index:,} of {len(table_data):,} runs"
+    )
+
     st.dataframe(
-        filtered,
+        page_data,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -942,8 +1293,10 @@ def show_compare_run(
         return
 
     st.subheader("Scalar Comparison")
+    color_scheme = select_comparison_color_scheme("compare_run_color_scheme")
+    scalar_comparison = build_run_scalar_comparison(top_run, bottom_run, metrics)
     st.dataframe(
-        build_run_scalar_comparison(top_run, bottom_run, metrics),
+        styled_comparison_table(scalar_comparison, settings, color_scheme),
         use_container_width=True,
         hide_index=True,
     )
@@ -980,19 +1333,28 @@ def show_version_tables(
         st.info("No runs match the current filters.")
         return
 
-    for version in sorted(filtered["version"].unique()):
+    export_dataframes = {}
+    for version in sorted(filtered["version"].unique(), key=version_sort_key, reverse=True):
         version_runs = filtered[filtered["version"] == version]
+        version_table = aggregate_runs(version_runs, ["model"], metrics)
+        export_dataframes[f"table_version_{version}"] = version_table
         with st.expander(f"{version} ({len(version_runs)} runs)", expanded=False):
             st.dataframe(
-                aggregate_runs(version_runs, ["model"], metrics),
+                version_table,
                 use_container_width=True,
                 hide_index=True,
             )
 
     st.divider()
-    show_version_plots(filtered, metrics, plot_height)
+    export_dataframes.update(show_version_plots(filtered, metrics, plot_height))
     st.divider()
-    show_version_cdf_plot(filtered, metrics, plot_height)
+    export_dataframes.update(show_version_cdf_plot(filtered, metrics, plot_height))
+    show_export_download(
+        "Download version tab data",
+        export_dataframes,
+        "versions_data.zip",
+        "versions_download",
+    )
 
 
 def show_model_tables(
@@ -1004,17 +1366,26 @@ def show_model_tables(
         st.info("No runs match the current filters.")
         return
 
+    export_dataframes = {}
     for model in sorted(filtered["model"].unique()):
         model_runs = filtered[filtered["model"] == model]
+        model_table = aggregate_runs(model_runs, ["version"], metrics)
+        export_dataframes[f"table_model_{model}"] = model_table
         with st.expander(f"{model} ({len(model_runs)} runs)", expanded=False):
             st.dataframe(
-                aggregate_runs(model_runs, ["version"], metrics),
+                model_table,
                 use_container_width=True,
                 hide_index=True,
             )
 
     st.divider()
-    show_model_version_plot(filtered, metrics, plot_height)
+    export_dataframes.update(show_model_version_plot(filtered, metrics, plot_height))
+    show_export_download(
+        "Download model tab data",
+        export_dataframes,
+        "models_data.zip",
+        "models_download",
+    )
 
 
 def version_sort_key(version: str) -> tuple[int, ...]:
@@ -1029,14 +1400,14 @@ def show_version_plots(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
-) -> None:
+) -> dict[str, pd.DataFrame]:
     if filtered.empty:
         st.info("No runs match the current filters.")
-        return
+        return {}
 
     selected_metric = st.selectbox("Plot metric", metrics)
 
-    version_order = sorted(filtered["version"].unique(), key=version_sort_key)
+    version_order = sorted(filtered["version"].unique(), key=version_sort_key, reverse=True)
     plot_data = (
         filtered.groupby(["version", "model"], as_index=False)
         .agg(
@@ -1071,6 +1442,7 @@ def show_version_plots(
         yaxis_title=selected_metric,
     )
     st.plotly_chart(fig, use_container_width=True)
+    return {f"plot_version_metric_{selected_metric}": plot_data}
 
 
 def empirical_cdf(values: pd.Series) -> pd.DataFrame:
@@ -1109,23 +1481,43 @@ def show_version_cdf_plot(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
-) -> None:
+) -> dict[str, pd.DataFrame]:
     if filtered.empty:
         st.info("No runs match the current filters.")
-        return
+        return {}
 
     st.subheader("Cumulative Distribution")
-    versions = sorted(filtered["version"].unique(), key=version_sort_key)
+    versions = sorted(filtered["version"].unique(), key=version_sort_key, reverse=True)
     selected_version = st.selectbox("CDF version", versions)
     selected_metric = st.selectbox("CDF metric", metrics)
     version_runs = filtered[filtered["version"] == selected_version]
 
     if version_runs.empty:
         st.info("No data is available for the selected version.")
-        return
+        return {}
 
     model_values = model_mean_cdf_data(version_runs, selected_metric)
     selected_values = model_values["value"]
+    stats = pd.DataFrame(
+        [
+            {
+                "statistic": "mean",
+                "value": selected_values.mean(),
+            },
+            {
+                "statistic": "std",
+                "value": selected_values.std(),
+            },
+            {
+                "statistic": "skew",
+                "value": selected_values.skew(),
+            },
+            {
+                "statistic": "kurtosis",
+                "value": selected_values.kurtosis(),
+            },
+        ]
+    )
     stats_columns = st.columns(4)
     stats_columns[0].metric("Mean", f"{selected_values.mean():.4g}")
     stats_columns[1].metric("Std", f"{selected_values.std():.4g}")
@@ -1150,13 +1542,17 @@ def show_version_cdf_plot(
         yaxis_range=[0, 1.02],
     )
     st.plotly_chart(fig, use_container_width=True)
+    return {
+        f"cdf_version_{selected_version}_{selected_metric}": model_values,
+        f"cdf_stats_version_{selected_version}_{selected_metric}": stats,
+    }
 
 
 def show_model_version_plot(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
-) -> None:
+) -> dict[str, pd.DataFrame]:
     selected_model = st.selectbox("Plot model", sorted(filtered["model"].unique()))
     selected_metric = st.selectbox("Model plot metric", metrics)
     model_data = filtered[filtered["model"] == selected_model]
@@ -1195,6 +1591,60 @@ def show_model_version_plot(
         yaxis_title=selected_metric,
     )
     st.plotly_chart(fig, use_container_width=True)
+    return {f"plot_model_{selected_model}_{selected_metric}": plot_data}
+
+
+def build_collection_comparison(
+    base_runs: pd.DataFrame,
+    base_label: str,
+    test_runs: pd.DataFrame,
+    test_label: str,
+    metrics: list[str],
+) -> pd.DataFrame:
+    base_runs = base_runs.copy()
+    test_runs = test_runs.copy()
+    base_runs[COLLECTION_LABEL_COLUMN] = base_label
+    test_runs[COLLECTION_LABEL_COLUMN] = test_label
+    comparison_data = pd.concat([base_runs, test_runs], ignore_index=True)
+
+    means = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False)[metrics].mean()
+    stds = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False)[metrics].std()
+    counts = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False).agg(
+        run_count=("uid", "count")
+    )
+    mean_wide = means.pivot(index="model", columns=COLLECTION_LABEL_COLUMN, values=metrics)
+    std_wide = stds.pivot(index="model", columns=COLLECTION_LABEL_COLUMN, values=metrics).fillna(0.0)
+    count_wide = counts.pivot(index="model", columns=COLLECTION_LABEL_COLUMN, values="run_count")
+    shared_models = [
+        model
+        for model in mean_wide.index
+        if all((metric, base_label) in mean_wide.columns for metric in metrics)
+        and all((metric, test_label) in mean_wide.columns for metric in metrics)
+        and mean_wide.loc[model].notna().all()
+    ]
+
+    rows = []
+    for model in shared_models:
+        row = {
+            "model": model,
+            f"{base_label}_runs": int(count_wide.loc[model, base_label]),
+            f"{test_label}_runs": int(count_wide.loc[model, test_label]),
+        }
+        for metric in metrics:
+            base_std = std_wide.loc[model, (metric, base_label)]
+            test_std = std_wide.loc[model, (metric, test_label)]
+            base_count = count_wide.loc[model, base_label]
+            test_count = count_wide.loc[model, test_label]
+            row[f"delta_{metric}"] = (
+                mean_wide.loc[model, (metric, test_label)]
+                - mean_wide.loc[model, (metric, base_label)]
+            )
+            row[f"uncertainty_{metric}"] = (
+                (base_std ** 2 / base_count) + (test_std ** 2 / test_count)
+            ) ** 0.5
+        rows.append(row)
+
+    return pd.DataFrame(rows).sort_values("model")
 
 
 def build_version_comparison(
@@ -1203,47 +1653,45 @@ def build_version_comparison(
     new_version: str,
     metrics: list[str],
 ) -> pd.DataFrame:
-    comparison_data = filtered[filtered["version"].isin([base_version, new_version])]
-    means = comparison_data.groupby(["model", "version"], as_index=False)[metrics].mean()
-    stds = comparison_data.groupby(["model", "version"], as_index=False)[metrics].std()
-    counts = comparison_data.groupby(["model", "version"], as_index=False).agg(
-        run_count=("uid", "count")
+    return build_collection_comparison(
+        base_runs=filtered[filtered["version"] == base_version],
+        base_label=base_version,
+        test_runs=filtered[filtered["version"] == new_version],
+        test_label=new_version,
+        metrics=metrics,
     )
-    mean_wide = means.pivot(index="model", columns="version", values=metrics)
-    std_wide = stds.pivot(index="model", columns="version", values=metrics).fillna(0.0)
-    count_wide = counts.pivot(index="model", columns="version", values="run_count")
-    shared_models = [
-        model
-        for model in mean_wide.index
-        if all((metric, base_version) in mean_wide.columns for metric in metrics)
-        and all((metric, new_version) in mean_wide.columns for metric in metrics)
-        and mean_wide.loc[model].notna().all()
-    ]
 
-    rows = []
-    for model in shared_models:
-        row = {"model": model}
-        for metric in metrics:
-            base_std = std_wide.loc[model, (metric, base_version)]
-            new_std = std_wide.loc[model, (metric, new_version)]
-            base_count = count_wide.loc[model, base_version]
-            new_count = count_wide.loc[model, new_version]
-            row[f"delta_{metric}"] = (
-                mean_wide.loc[model, (metric, new_version)]
-                - mean_wide.loc[model, (metric, base_version)]
-            )
-            row[f"uncertainty_{metric}"] = (
-                (base_std ** 2 / base_count) + (new_std ** 2 / new_count)
-            ) ** 0.5
-            row[f"{base_version}_runs"] = count_wide.loc[model, base_version]
-            row[f"{new_version}_runs"] = count_wide.loc[model, new_version]
-        rows.append(row)
 
-    return pd.DataFrame(rows).sort_values("model")
+def comparison_export_dataframes(
+    base_runs: pd.DataFrame,
+    base_label: str,
+    test_runs: pd.DataFrame,
+    test_label: str,
+    metrics: list[str],
+    comparison: pd.DataFrame,
+    selected_metric: str,
+    plot_data: pd.DataFrame,
+    cdf_dataframes: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    return {
+        "metadata": comparison_metadata(base_label, test_label, base_runs, test_runs),
+        "coverage": comparison_coverage(base_runs, base_label, test_runs, test_label),
+        "comparison_table_wide": comparison,
+        "all_metric_model_deltas": build_collection_metric_deltas(
+            base_runs,
+            base_label,
+            test_runs,
+            test_label,
+            metrics,
+        ),
+        f"visible_bar_delta_{selected_metric}": plot_data,
+        **cdf_dataframes,
+    }
 
 
 def show_version_comparison(
     filtered: pd.DataFrame,
+    settings: dict[str, Any],
     metrics: list[str],
     plot_height: int,
 ) -> None:
@@ -1272,6 +1720,8 @@ def show_version_comparison(
         st.info("Choose two different versions.")
         return
 
+    base_runs = filtered[filtered["version"] == base_version]
+    test_runs = filtered[filtered["version"] == new_version]
     comparison = build_version_comparison(
         filtered=filtered,
         base_version=base_version,
@@ -1282,7 +1732,12 @@ def show_version_comparison(
         st.info("No models are present in both selected versions.")
         return
 
-    st.dataframe(comparison, use_container_width=True, hide_index=True)
+    color_scheme = select_comparison_color_scheme("compare_versions_color_scheme")
+    st.dataframe(
+        styled_comparison_table(comparison, settings, color_scheme),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     selected_metric = st.selectbox("Delta metric", metrics)
     delta_column = f"delta_{selected_metric}"
@@ -1308,40 +1763,103 @@ def show_version_comparison(
 
     st.divider()
     show_comparison_cdf_plot(
-        filtered=filtered,
+        null_runs=base_runs,
+        test_runs=test_runs,
         metrics=metrics,
         plot_height=plot_height,
-        null_version=base_version,
-        test_version=new_version,
+        null_label=f"Null: {base_version}",
+        test_label=f"Test: {new_version}",
+        key_prefix="compare_versions",
+        settings=settings,
+        color_scheme=color_scheme,
+    )
+    st.download_button(
+        "Download calculated mean differences CSV",
+        data=dataframe_to_csv(
+            build_collection_metric_deltas(
+                base_runs,
+                base_version,
+                test_runs,
+                new_version,
+                metrics,
+            )
+        ),
+        file_name=(
+            f"mean_differences_{export_name(base_version)}_to_"
+            f"{export_name(new_version)}.csv"
+        ),
+        mime="text/csv",
+        key="compare_versions_mean_differences_download",
+        use_container_width=True,
     )
 
 
 def show_comparison_cdf_plot(
-    filtered: pd.DataFrame,
+    null_runs: pd.DataFrame,
+    test_runs: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
-    null_version: str,
-    test_version: str,
-) -> None:
+    null_label: str,
+    test_label: str,
+    key_prefix: str,
+    settings: dict[str, Any],
+    color_scheme: str,
+) -> dict[str, pd.DataFrame]:
     st.subheader("Cumulative Distribution")
-    selected_metric = st.selectbox("CDF comparison metric", metrics)
+    selected_metric = st.selectbox(
+        "CDF comparison metric",
+        metrics,
+        key=f"{key_prefix}_cdf_metric",
+    )
 
-    null_runs = filtered[filtered["version"] == null_version]
-    test_runs = filtered[filtered["version"] == test_version]
     if null_runs.empty or test_runs.empty:
-        st.info("Both selected versions need data.")
-        return
+        st.info("Both selected collections need data.")
+        return {}
 
-    null_cdf = model_mean_cdf_data(null_runs, selected_metric, label=f"Null: {null_version}")
-    test_cdf = model_mean_cdf_data(test_runs, selected_metric, label=f"Test: {test_version}")
+    null_cdf = model_mean_cdf_data(null_runs, selected_metric, label=null_label)
+    test_cdf = model_mean_cdf_data(test_runs, selected_metric, label=test_label)
     cdf_data = pd.concat([null_cdf, test_cdf], ignore_index=True)
 
-    stats = (
-        cdf_data.groupby("curve")["value"]
-        .agg(mean="mean", std="std", skew="skew", kurtosis=pd.Series.kurtosis)
-        .reset_index()
+    null_values = null_cdf["value"]
+    test_values = test_cdf["value"]
+    stats = pd.DataFrame(
+        [
+            {
+                "statistic": "mean",
+                "null": null_values.mean(),
+                "test": test_values.mean(),
+                "delta": test_values.mean() - null_values.mean(),
+            },
+            {
+                "statistic": "std",
+                "null": null_values.std(),
+                "test": test_values.std(),
+                "delta": test_values.std() - null_values.std(),
+            },
+            {
+                "statistic": "skew",
+                "null": null_values.skew(),
+                "test": test_values.skew(),
+                "delta": test_values.skew() - null_values.skew(),
+            },
+            {
+                "statistic": "kurtosis",
+                "null": null_values.kurtosis(),
+                "test": test_values.kurtosis(),
+                "delta": test_values.kurtosis() - null_values.kurtosis(),
+            },
+        ]
     )
-    st.dataframe(stats, use_container_width=True, hide_index=True)
+    st.dataframe(
+        styled_comparison_table(stats, settings, color_scheme),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "null": st.column_config.NumberColumn(null_label, format="%.5g"),
+            "test": st.column_config.NumberColumn(test_label, format="%.5g"),
+            "delta": st.column_config.NumberColumn("Delta", format="%.5g"),
+        },
+    )
 
     fig = px.line(
         cdf_data,
@@ -1362,6 +1880,383 @@ def show_comparison_cdf_plot(
         yaxis_range=[0, 1.02],
     )
     st.plotly_chart(fig, use_container_width=True)
+    return {
+        f"cdf_points_{selected_metric}": cdf_data,
+        f"cdf_stats_{selected_metric}": stats,
+    }
+
+
+def collection_parameter_columns(
+    runs: pd.DataFrame,
+    metrics: list[str],
+) -> list[str]:
+    excluded_columns = set(metrics)
+    preferred_columns = [
+        "version",
+        "date",
+        "artifact",
+        "artifact_path",
+        "git_commit",
+        "commit",
+        "git_branch",
+        "branch",
+        "git_tag",
+        "tag",
+        "job_name",
+        "hpc_system",
+        "scheduler",
+        "queue",
+        "model",
+        "modified",
+    ]
+    available_columns = [
+        column
+        for column in runs.columns
+        if column not in excluded_columns and not runs[column].dropna().empty
+    ]
+    ordered_columns = [
+        column
+        for column in preferred_columns
+        if column in available_columns
+    ]
+    ordered_columns.extend(
+        sorted(column for column in available_columns if column not in ordered_columns)
+    )
+    return ordered_columns
+
+
+def compact_collection_label(field: str, match_mode: str, values: Sequence[Any]) -> str:
+    clean_values = [str(value) for value in values if str(value)]
+    if not clean_values:
+        return f"{field}: empty"
+    if len(clean_values) == 1:
+        return f"{field} {match_mode} {clean_values[0]}"
+    first_values = ", ".join(clean_values[:3])
+    if len(clean_values) > 3:
+        first_values = f"{first_values}, +{len(clean_values) - 3}"
+    return f"{field} {match_mode} {first_values}"
+
+
+def unique_string_values(runs: pd.DataFrame, field: str) -> list[str]:
+    return sorted(
+        runs[field].dropna().astype(str).unique(),
+        key=lambda value: value.lower(),
+    )
+
+
+def select_datetime_collection(
+    filtered: pd.DataFrame,
+    field: str,
+    prefix: str,
+    label: str,
+) -> tuple[str, pd.DataFrame]:
+    values = pd.to_datetime(filtered[field], errors="coerce")
+    valid_values = values.dropna()
+    if valid_values.empty:
+        st.info(f"`{field}` has no datetime values.")
+        return f"{label} {field}", filtered.iloc[0:0].copy()
+
+    min_date = valid_values.min().date()
+    max_date = valid_values.max().date()
+    selected_range = st.date_input(
+        f"{label} window",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+        key=f"{prefix}_date_window",
+    )
+    if len(selected_range) != 2:
+        return f"{label} {field}", filtered.iloc[0:0].copy()
+
+    start = pd.to_datetime(selected_range[0])
+    end = pd.to_datetime(selected_range[1]) + pd.Timedelta(days=1)
+    selected_runs = filtered[(values >= start) & (values < end)].copy()
+    default_name = f"{field} {selected_range[0]} to {selected_range[1]}"
+    collection_name = st.text_input(
+        f"{label} name",
+        value=default_name,
+        key=f"{prefix}_date_name",
+    )
+    return collection_name, selected_runs
+
+
+def select_bool_collection(
+    filtered: pd.DataFrame,
+    field: str,
+    prefix: str,
+    label: str,
+) -> tuple[str, pd.DataFrame]:
+    values = sorted(filtered[field].dropna().unique())
+    selected_values = st.multiselect(
+        f"{label} values",
+        values,
+        default=values[:1],
+        key=f"{prefix}_bool_values",
+    )
+    selected_runs = filtered[filtered[field].isin(selected_values)].copy()
+    default_name = compact_collection_label(field, "is", selected_values)
+    collection_name = st.text_input(
+        f"{label} name",
+        value=default_name,
+        key=f"{prefix}_bool_name",
+    )
+    return collection_name, selected_runs
+
+
+def string_collection_mask(
+    values: pd.Series,
+    match_mode: str,
+    selected_values: Sequence[str],
+    free_text: str,
+) -> pd.Series:
+    string_values = values.fillna("").astype(str)
+    if match_mode == "Exact values":
+        return string_values.isin(selected_values)
+    if match_mode == "Starts with":
+        return string_values.str.startswith(free_text, na=False)
+    if match_mode == "Contains":
+        return string_values.str.contains(free_text, case=False, regex=False, na=False)
+    if match_mode == "Regex":
+        try:
+            return string_values.str.contains(free_text, case=False, regex=True, na=False)
+        except re.error:
+            st.warning(f"`{free_text}` is not a valid regular expression.")
+            return pd.Series(False, index=values.index)
+    if match_mode == "Non-empty":
+        return string_values.str.len() > 0
+    return pd.Series(False, index=values.index)
+
+
+def select_string_collection(
+    filtered: pd.DataFrame,
+    field: str,
+    prefix: str,
+    label: str,
+    match_mode: str,
+    default_exact_index: int,
+) -> tuple[str, pd.DataFrame]:
+    value_options = unique_string_values(filtered, field)
+    selected_values: list[str] = []
+    free_text = ""
+    if match_mode == "Exact values":
+        default_values = value_options[default_exact_index:default_exact_index + 1]
+        selected_values = st.multiselect(
+            f"{label} values",
+            value_options,
+            default=default_values,
+            key=f"{prefix}_exact_values",
+        )
+        default_name = compact_collection_label(field, "is", selected_values)
+    elif match_mode in {"Starts with", "Contains", "Regex"}:
+        free_text = st.text_input(
+            f"{label} match text",
+            value="",
+            key=f"{prefix}_match_text",
+        )
+        default_name = compact_collection_label(field, match_mode.lower(), [free_text])
+    else:
+        default_name = f"{field} non-empty"
+
+    mask = string_collection_mask(
+        filtered[field],
+        match_mode,
+        selected_values,
+        free_text,
+    )
+    selected_runs = filtered[mask].copy()
+    collection_name = st.text_input(
+        f"{label} name",
+        value=default_name,
+        key=f"{prefix}_string_name",
+    )
+    return collection_name, selected_runs
+
+
+def select_collection_runs(
+    filtered: pd.DataFrame,
+    field: str,
+    prefix: str,
+    label: str,
+    match_mode: str,
+    default_exact_index: int,
+) -> tuple[str, pd.DataFrame]:
+    if pd.api.types.is_datetime64_any_dtype(filtered[field]):
+        return select_datetime_collection(filtered, field, prefix, label)
+    if pd.api.types.is_bool_dtype(filtered[field]):
+        return select_bool_collection(filtered, field, prefix, label)
+    return select_string_collection(
+        filtered,
+        field,
+        prefix,
+        label,
+        match_mode,
+        default_exact_index,
+    )
+
+
+def show_collection_comparison_result(
+    base_runs: pd.DataFrame,
+    base_label: str,
+    test_runs: pd.DataFrame,
+    test_label: str,
+    settings: dict[str, Any],
+    metrics: list[str],
+    plot_height: int,
+    key_prefix: str,
+) -> None:
+    if base_runs.empty or test_runs.empty:
+        st.info("Both selected collections need data.")
+        return
+
+    comparison = build_collection_comparison(
+        base_runs=base_runs,
+        base_label=base_label,
+        test_runs=test_runs,
+        test_label=test_label,
+        metrics=metrics,
+    )
+    if comparison.empty:
+        st.info("No models are present in both selected collections.")
+        return
+
+    count_columns = st.columns(2)
+    count_columns[0].metric(f"{base_label} runs", len(base_runs))
+    count_columns[1].metric(f"{test_label} runs", len(test_runs))
+
+    color_scheme = select_comparison_color_scheme(f"{key_prefix}_color_scheme")
+    st.dataframe(
+        styled_comparison_table(comparison, settings, color_scheme),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    selected_metric = st.selectbox(
+        "Delta metric",
+        metrics,
+        key=f"{key_prefix}_delta_metric",
+    )
+    delta_column = f"delta_{selected_metric}"
+    uncertainty_column = f"uncertainty_{selected_metric}"
+    plot_data = comparison.sort_values(delta_column)
+    fig = px.bar(
+        plot_data,
+        x="model",
+        y=delta_column,
+        error_y=uncertainty_column,
+        color=delta_column,
+        color_continuous_scale="RdBu",
+        title=f"{selected_metric} delta: {test_label} - {base_label}",
+    )
+    fig.update_layout(
+        height=plot_height,
+        margin=dict(l=10, r=10, t=44, b=10),
+        xaxis_title="Model",
+        yaxis_title=delta_column,
+        coloraxis_showscale=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+    show_comparison_cdf_plot(
+        null_runs=base_runs,
+        test_runs=test_runs,
+        metrics=metrics,
+        plot_height=plot_height,
+        null_label=f"Null: {base_label}",
+        test_label=f"Test: {test_label}",
+        key_prefix=key_prefix,
+        settings=settings,
+        color_scheme=color_scheme,
+    )
+    st.download_button(
+        "Download calculated mean differences CSV",
+        data=dataframe_to_csv(
+            build_collection_metric_deltas(
+                base_runs,
+                base_label,
+                test_runs,
+                test_label,
+                metrics,
+            )
+        ),
+        file_name=(
+            f"mean_differences_{export_name(base_label)}_to_"
+            f"{export_name(test_label)}.csv"
+        ),
+        mime="text/csv",
+        key="compare_collection_mean_differences_download",
+        use_container_width=True,
+    )
+
+
+def show_compare_collection(
+    filtered: pd.DataFrame,
+    settings: dict[str, Any],
+    metrics: list[str],
+    plot_height: int,
+) -> None:
+    if filtered.empty:
+        st.info("No runs match the current filters.")
+        return
+    if not metrics:
+        st.info("No numeric metrics are available for comparison.")
+        return
+
+    parameter_columns = collection_parameter_columns(filtered, metrics)
+    if not parameter_columns:
+        st.info("No collection parameters are available.")
+        return
+
+    selected_field = st.selectbox(
+        "Collection parameter",
+        parameter_columns,
+        key="compare_collection_parameter",
+    )
+    match_mode = "Exact values"
+    if (
+        not pd.api.types.is_datetime64_any_dtype(filtered[selected_field])
+        and not pd.api.types.is_bool_dtype(filtered[selected_field])
+    ):
+        match_mode = st.selectbox(
+            "Match",
+            ["Exact values", "Starts with", "Contains", "Regex", "Non-empty"],
+            key="compare_collection_match_mode",
+        )
+
+    collection_columns = st.columns(2)
+    with collection_columns[0]:
+        base_label, base_runs = select_collection_runs(
+            filtered=filtered,
+            field=selected_field,
+            prefix="compare_collection_base",
+            label="Null / base collection",
+            match_mode=match_mode,
+            default_exact_index=0,
+        )
+    with collection_columns[1]:
+        test_label, test_runs = select_collection_runs(
+            filtered=filtered,
+            field=selected_field,
+            prefix="compare_collection_test",
+            label="Test collection",
+            match_mode=match_mode,
+            default_exact_index=1,
+        )
+
+    if base_label == test_label:
+        st.info("Choose different collection names.")
+        return
+
+    show_collection_comparison_result(
+        base_runs=base_runs,
+        base_label=base_label,
+        test_runs=test_runs,
+        test_label=test_label,
+        settings=settings,
+        metrics=metrics,
+        plot_height=plot_height,
+        key_prefix="compare_collection",
+    )
 
 
 def show_pie_charts(
@@ -1482,7 +2377,15 @@ def main(settings_path: str | Path | None = None) -> None:
             "Compare Versions",
             lambda: (
                 show_tab_summary(filtered, settings, "compare_versions", metrics),
-                show_version_comparison(filtered, metrics, plot_height),
+                show_version_comparison(filtered, settings, metrics, plot_height),
+            ),
+        ),
+        (
+            "compare_collection",
+            "Compare Collection",
+            lambda: (
+                show_tab_summary(filtered, settings, "compare_collection", metrics),
+                show_compare_collection(filtered, settings, metrics, plot_height),
             ),
         ),
         (

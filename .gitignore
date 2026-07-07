@@ -221,6 +221,8 @@ mlflow/
 store.*/
 artifacts/
 runs.db.bak
+performance_comparison/generated*
+old_dbs/
 
 # OS-generated files
 .DS_Store
