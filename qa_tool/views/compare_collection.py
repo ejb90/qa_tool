@@ -30,7 +30,6 @@ def collection_parameter_columns(
         "version",
         "date",
         "artifact",
-        "artifact_path",
         "git_commit",
         "commit",
         "git_branch",

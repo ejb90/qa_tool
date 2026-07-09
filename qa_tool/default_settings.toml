@@ -27,45 +27,53 @@ url = "https://github.com/ejb90/qa_tool"
 # Empty table_metrics means "select every numeric metric".
 table_metrics = []
 
+[tables.all_runs]
+# List database columns here to control the All Runs table's visible columns
+# and their order. An empty list keeps every available column in database order.
+columns = []
+
 [summaries.default]
-top = ["runs", "versions", "models", "total_runtime"]
-metrics = ["runtime", "memory_hwm"]
-aggregations = ["mean", "max"]
+top = ["runs", "versions", "models"]
+metrics = []
+aggregations = []
 
 [summaries.tabs.all_runs]
+top = ["runs", "versions", "models"]
+metrics = []
+aggregations = []
 
 [summaries.tabs.versions]
-top = ["versions"]
-metrics = ["runtime", "memory_hwm"]
-aggregations = ["mean"]
+top = ["runs", "versions", "models"]
+metrics = []
+aggregations = []
 
 [summaries.tabs.models]
-top = ["models"]
-metrics = ["runtime", "memory_hwm"]
-aggregations = ["mean"]
+top = ["runs", "versions", "models"]
+metrics = []
+aggregations = []
 
 [summaries.tabs.compare_versions]
-top = []
+top = ["runs", "versions", "models"]
 metrics = []
 aggregations = []
 
 [summaries.tabs.compare_collection]
-top = []
+top = ["runs", "versions", "models"]
 metrics = []
 aggregations = []
 
 [summaries.tabs.compare_run]
-top = []
+top = ["runs", "versions", "models"]
 metrics = []
 aggregations = []
 
 [summaries.tabs.pie_charts]
-top = []
+top = ["runs", "versions", "models"]
 metrics = []
 aggregations = []
 
 [summaries.tabs.run_detail]
-top = []
+top = ["runs", "versions", "models"]
 metrics = []
 aggregations = []
 
@@ -87,4 +95,3 @@ height = 520
 # Unspecified metrics keep the current auto-scale behaviour.
 # density = 0.1
 # velocity = 0.05
-# runtime = 10.0

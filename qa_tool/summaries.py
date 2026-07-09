@@ -21,7 +21,6 @@ TOP_SUMMARY_LABELS = {
     "runs": "Runs",
     "versions": "Versions",
     "models": "Models",
-    "total_runtime": "Total runtime",
 }
 
 TAB_DESCRIPTIONS = {
@@ -103,8 +102,6 @@ def show_summary(
                 value = filtered["version"].nunique()
             elif item == "models":
                 value = filtered["model"].nunique()
-            elif item == "total_runtime" and not filtered.empty:
-                value = f"{filtered['runtime'].sum():.4g}"
             else:
                 value = "n/a"
             top_columns[index % len(top_columns)].metric(TOP_SUMMARY_LABELS[item], value)
@@ -132,40 +129,17 @@ def show_summary(
 
 def show_stored_summary(
     summary: dict[str, Any],
-    settings: dict[str, Any],
-    tab_key: str,
 ) -> None:
-    """Show summary metrics from the database's precomputed overview record."""
-    top_items, summary_metrics, summary_aggregations = tab_summary_options(
-        settings,
-        tab_key,
-        ["runtime", "memory_hwm"],
-    )
-    top_columns = st.columns(min(4, len(top_items))) if top_items else []
-    summary_values = {
-        "runs": summary.get("run_count"),
-        "versions": summary.get("version_count"),
-        "models": summary.get("model_count"),
-        "total_runtime": summary.get("total_runtime"),
-    }
-    for index, item in enumerate(top_items):
-        value = summary_values.get(item)
-        formatted_value = f"{value:.4g}" if isinstance(value, int | float) else "n/a"
-        top_columns[index % len(top_columns)].metric(TOP_SUMMARY_LABELS[item], formatted_value)
-
-    summary_items = [
-        (metric, aggregation)
-        for metric in summary_metrics
-        for aggregation in summary_aggregations
+    """Render every displayable value supplied by the summary table."""
+    display_items = [
+        (name, value)
+        for name, value in summary.items()
+        if name not in {"summary_id", "refreshed_at"}
     ]
-    if not summary_items:
-        return
-
-    summary_columns = st.columns(min(4, len(summary_items)))
-    for index, (metric, aggregation) in enumerate(summary_items):
-        value = summary.get(f"{aggregation}_{metric}")
+    summary_columns = st.columns(min(4, len(display_items)))
+    for index, (name, value) in enumerate(display_items):
         formatted_value = f"{value:.4g}" if isinstance(value, int | float) else "n/a"
-        label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
+        label = str(name).replace("_", " ").title()
         summary_columns[index % len(summary_columns)].metric(label, formatted_value)
 
 def tab_summary_options(
@@ -175,8 +149,8 @@ def tab_summary_options(
 ) -> tuple[list[str], list[str], list[str]]:
     default_summary = settings["summaries"]["default"]
     tab_summary = settings["summaries"]["tabs"].get(tab_key, {})
-    fallback_top = ["runs", "versions", "models", "total_runtime"]
-    fallback_metrics = ["runtime", "memory_hwm"]
+    fallback_top = ["runs", "versions", "models"]
+    fallback_metrics = available_metrics[:2]
     fallback_aggregations = ["mean", "max"]
     top_items = tab_summary.get("top", default_summary.get("top", fallback_top))
     configured_summary_metrics = tab_summary.get(
@@ -187,10 +161,14 @@ def tab_summary_options(
         "aggregations",
         default_summary.get("aggregations", fallback_aggregations),
     )
-    summary_metrics = configured_metrics(
-        configured_summary_metrics,
-        available_metrics,
-        default_summary.get("metrics", fallback_metrics),
+    summary_metrics = (
+        configured_metrics(
+            configured_summary_metrics,
+            available_metrics,
+            fallback_metrics,
+        )
+        if configured_summary_metrics
+        else []
     )
     summary_aggregations = [
         aggregation

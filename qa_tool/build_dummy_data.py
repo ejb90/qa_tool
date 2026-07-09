@@ -1,4 +1,5 @@
 import datetime
+import json
 from pathlib import Path
 import random
 import uuid
@@ -19,8 +20,7 @@ class Run(BaseModel):
     density: float
     velocity: float
     error: float
-    runtime: float
-    memory_hwm: float
+    metrics: dict[str, float]
     artifact: Path | None = None
 
     def model_post_init(self, __context: dict) -> None:
@@ -37,7 +37,9 @@ class Run(BaseModel):
         )
 
     def save_json(self, path: str | Path) -> None:
-        Path(path).write_text(self.model_dump_json(indent=2))
+        metadata = self.model_dump(mode="json")
+        metadata.update(metadata.pop("metrics"))
+        Path(path).write_text(json.dumps(metadata, indent=2))
 
 
 def generate_material_parquet_files(
@@ -211,8 +213,10 @@ def build_data(max_runs: int = 7, major_versions: int=10) -> list[Run]:
                 density = gas_density_rtp_kg_m3[model] + random.uniform(-0.05, 0.05)
                 velocity = 1/gas_density_rtp_kg_m3[model]**2 * random.uniform(0.0, 0.1)
                 error = random.uniform(0.0, 0.1)
-                runtime = max(0.1, random.gauss(5.0, 2.0))
-                memory_hwm = max(4.0, random.gauss(7.0, 1.0))
+                metrics = {
+                    "sample_metric_a": max(0.1, random.gauss(5.0, 2.0)),
+                    "sample_metric_b": max(4.0, random.gauss(7.0, 1.0)),
+                }
                 modified = random.random() < 0.30
 
                 runs.append(
@@ -225,8 +229,7 @@ def build_data(max_runs: int = 7, major_versions: int=10) -> list[Run]:
                     density=density,
                     velocity=velocity,
                     error=error,
-                    runtime=runtime,
-                    memory_hwm=memory_hwm,
+                    metrics=metrics,
                     modified=modified,
                     )
                 )

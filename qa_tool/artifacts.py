@@ -34,9 +34,9 @@ def run_option_match_index(run_options: pd.DataFrame, pasted_id: str) -> int | N
 
 def run_artifact_candidates(row: pd.Series, artifact_root: str) -> list[Path | str]:
     candidates: list[Path | str] = []
-    artifact_path = row.get("artifact_path")
-    if isinstance(artifact_path, str) and artifact_path:
-        candidates.append(artifact_path if artifact_path.startswith("s3://") else Path(artifact_path))
+    artifact = row.get("artifact")
+    if isinstance(artifact, str) and artifact:
+        candidates.append(artifact if artifact.startswith("s3://") else Path(artifact))
 
     if artifact_root:
         root = Path(artifact_root)
@@ -465,4 +465,3 @@ def show_compare_run_artifacts(
                     bottom_label=bottom_label,
                     plot_height=plot_height,
                 )
-

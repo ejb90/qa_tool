@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
 
-def show_all_runs(filtered: pd.DataFrame) -> None:
+def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
     st.subheader("Runs")
     if filtered.empty:
         st.info("No runs match the current filters.")
@@ -12,7 +14,7 @@ def show_all_runs(filtered: pd.DataFrame) -> None:
 
     searchable_columns = [
         column
-        for column in ["uid", "name", "model", "version", "artifact", "artifact_path"]
+        for column in ["uid", "name", "model", "version", "artifact"]
         if column in filtered.columns
     ]
     search_text = st.text_input(
@@ -35,6 +37,11 @@ def show_all_runs(filtered: pd.DataFrame) -> None:
     if table_data.empty:
         st.info("No runs match the table search.")
         return
+
+    configured_columns = settings.get("tables", {}).get("all_runs", {}).get("columns", [])
+    visible_columns = [column for column in configured_columns if column in table_data.columns]
+    if visible_columns:
+        table_data = table_data.loc[:, visible_columns]
 
     pagination_columns = st.columns([1, 1, 3])
     page_size = pagination_columns[0].selectbox(

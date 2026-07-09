@@ -7,7 +7,13 @@ from pathlib import Path
 import streamlit as st
 
 try:
-    from qa_tool.data import filter_runs, load_run_summary, load_runs, metric_columns, show_downloads
+    from qa_tool.data import (
+        filter_runs,
+        load_run_summary,
+        load_runs,
+        metric_columns,
+        show_downloads,
+    )
     from qa_tool.settings import load_settings
     from qa_tool.summaries import (
         show_intro,
@@ -108,7 +114,7 @@ def main(settings_path: str | Path | None = None) -> None:
     if active_key == "overview":
         with active_tab:
             if stored_summary is not None:
-                show_stored_summary(stored_summary, settings, "all_runs")
+                show_stored_summary(stored_summary)
             else:
                 st.warning("No saved summary is available yet.")
             show_navigation_cards(enabled_tab_labels, "main_tabs")
@@ -132,7 +138,7 @@ def main(settings_path: str | Path | None = None) -> None:
     with active_tab:
         if active_key == "all_runs":
             show_tab_summary(filtered, settings, "all_runs", metrics)
-            show_all_runs(filtered)
+            show_all_runs(filtered, settings)
             show_downloads(filtered)
         elif active_key == "versions":
             show_versions_tab(filtered, settings, metrics, plot_height)

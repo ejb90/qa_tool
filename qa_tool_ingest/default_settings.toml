@@ -1,0 +1,20 @@
+[database]
+path = "runs.duckdb"
+runs_table = "runs"
+summary_table = "run_summary"
+
+[input]
+# Empty means ingest every top-level JSON key. Nested values are stored as JSON text.
+include = []
+exclude = []
+artifact_column = "artifact"
+
+[input.rename]
+# Output-column = "JSON key". Renamed keys are included even when `include` is empty.
+# uid = "run_id"
+
+[summary]
+# Create <column>_count fields for these available run columns.
+distinct_columns = ["model", "version"]
+# Create mean_<column> fields for these numeric run columns.
+mean_columns = []

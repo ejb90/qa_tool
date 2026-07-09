@@ -52,7 +52,12 @@ def normalize_run_columns(
             + ", ".join(f"`{column}`" for column in collisions)
         )
 
-    return runs.rename(columns=rename_columns)
+    runs = runs.rename(columns=rename_columns)
+    if "uid" not in runs.columns:
+        raise ValueError("Missing required database column `uid`")
+    if "name" not in runs.columns:
+        runs["name"] = runs["uid"].astype(str)
+    return runs
 
 @st.cache_data(show_spinner=False)
 def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFrame:
@@ -89,6 +94,7 @@ def load_run_summary(db_path: str) -> dict[str, Any] | None:
         return None
 
     return summary.iloc[0].to_dict() if not summary.empty else None
+
 
 def metric_columns(runs: pd.DataFrame) -> list[str]:
     return [
