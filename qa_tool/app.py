@@ -7,9 +7,14 @@ from pathlib import Path
 import streamlit as st
 
 try:
-    from qa_tool.data import filter_runs, load_runs, metric_columns, show_downloads
+    from qa_tool.data import filter_runs, load_run_summary, load_runs, metric_columns, show_downloads
     from qa_tool.settings import load_settings
-    from qa_tool.summaries import show_intro, show_tab_summary
+    from qa_tool.summaries import (
+        show_intro,
+        show_navigation_cards,
+        show_stored_summary,
+        show_tab_summary,
+    )
     from qa_tool.views import (
         show_all_runs,
         show_compare_collection,
@@ -21,9 +26,9 @@ try:
         show_versions_tab,
     )
 except ModuleNotFoundError:
-    from data import filter_runs, load_runs, metric_columns, show_downloads
+    from data import filter_runs, load_run_summary, load_runs, metric_columns, show_downloads
     from settings import load_settings
-    from summaries import show_intro, show_tab_summary
+    from summaries import show_intro, show_navigation_cards, show_stored_summary, show_tab_summary
     from views import (
         show_all_runs,
         show_compare_collection,
@@ -63,6 +68,51 @@ def main(settings_path: str | Path | None = None) -> None:
         return
 
     show_intro(settings, db_path)
+    stored_summary = load_run_summary(str(db_path))
+
+    configured_tabs = [
+        ("overview", "Overview"),
+        (
+            "all_runs",
+            "All Runs",
+        ),
+        ("versions", "Versions"),
+        ("models", "Models"),
+        ("compare_versions", "Compare Versions"),
+        ("compare_collection", "Compare Collection"),
+        ("compare_run", "Compare Run"),
+        ("pie_charts", "Pie Charts"),
+        ("run_detail", "Run Detail"),
+    ]
+    enabled_tabs = [
+        (key, label)
+        for key, label in configured_tabs
+        if settings["tabs"].get(key, True)
+    ]
+    if not enabled_tabs:
+        st.warning("No views are enabled in the settings.")
+        return
+    tab_containers = st.tabs(
+        [label for _, label in enabled_tabs],
+        key="main_tabs",
+        on_change="rerun",
+    )
+    open_tabs = [
+        (key, label, tab)
+        for (key, label), tab in zip(enabled_tabs, tab_containers)
+        if tab.open
+    ]
+    active_key, _, active_tab = open_tabs[0] if open_tabs else (*enabled_tabs[0], tab_containers[0])
+    enabled_tab_labels = [(key, label) for key, label in enabled_tabs if key != "overview"]
+
+    if active_key == "overview":
+        with active_tab:
+            if stored_summary is not None:
+                show_stored_summary(stored_summary, settings, "all_runs")
+            else:
+                st.warning("No saved summary is available yet.")
+            show_navigation_cards(enabled_tab_labels, "main_tabs")
+        return
 
     database_columns = settings["database"].get("columns", {})
     try:
@@ -79,73 +129,29 @@ def main(settings_path: str | Path | None = None) -> None:
     filtered = filter_runs(runs, metrics, settings)
     metrics = st.session_state.get("summary_metrics", metrics)
 
-    show_downloads(filtered)
-
-    available_tabs = [
-        (
-            "all_runs",
-            "All Runs",
-            lambda: (
-                show_tab_summary(filtered, settings, "all_runs", metrics),
-                show_all_runs(filtered),
-            ),
-        ),
-        (
-            "versions",
-            "Versions",
-            lambda: show_versions_tab(filtered, settings, metrics, plot_height),
-        ),
-        (
-            "models",
-            "Models",
-            lambda: show_models_tab(filtered, settings, metrics, plot_height),
-        ),
-        (
-            "compare_versions",
-            "Compare Versions",
-            lambda: (
-                show_tab_summary(filtered, settings, "compare_versions", metrics),
-                show_version_comparison(filtered, settings, metrics, plot_height),
-            ),
-        ),
-        (
-            "compare_collection",
-            "Compare Collection",
-            lambda: (
-                show_tab_summary(filtered, settings, "compare_collection", metrics),
-                show_compare_collection(filtered, settings, metrics, plot_height),
-            ),
-        ),
-        (
-            "compare_run",
-            "Compare Run",
-            lambda: show_compare_run(filtered, settings, metrics, plot_height),
-        ),
-        (
-            "pie_charts",
-            "Pie Charts",
-            lambda: (
-                show_tab_summary(filtered, settings, "pie_charts", metrics),
-                show_pie_charts(filtered, metrics, plot_height),
-            ),
-        ),
-        (
-            "run_detail",
-            "Run Detail",
-            lambda: (
-                show_tab_summary(filtered, settings, "run_detail", metrics),
-                show_run_detail(filtered, settings),
-            ),
-        ),
-    ]
-    enabled_tabs = [
-        (label, renderer)
-        for key, label, renderer in available_tabs
-        if settings["tabs"].get(key, True)
-    ]
-    for tab, (_, renderer) in zip(st.tabs([label for label, _ in enabled_tabs]), enabled_tabs):
-        with tab:
-            renderer()
+    with active_tab:
+        if active_key == "all_runs":
+            show_tab_summary(filtered, settings, "all_runs", metrics)
+            show_all_runs(filtered)
+            show_downloads(filtered)
+        elif active_key == "versions":
+            show_versions_tab(filtered, settings, metrics, plot_height)
+        elif active_key == "models":
+            show_models_tab(filtered, settings, metrics, plot_height)
+        elif active_key == "compare_versions":
+            show_tab_summary(filtered, settings, "compare_versions", metrics)
+            show_version_comparison(filtered, settings, metrics, plot_height)
+        elif active_key == "compare_collection":
+            show_tab_summary(filtered, settings, "compare_collection", metrics)
+            show_compare_collection(filtered, settings, metrics, plot_height)
+        elif active_key == "compare_run":
+            show_compare_run(filtered, settings, metrics, plot_height)
+        elif active_key == "pie_charts":
+            show_tab_summary(filtered, settings, "pie_charts", metrics)
+            show_pie_charts(filtered, metrics, plot_height)
+        elif active_key == "run_detail":
+            show_tab_summary(filtered, settings, "run_detail", metrics)
+            show_run_detail(filtered, settings)
 
 
 if __name__ == "__main__":

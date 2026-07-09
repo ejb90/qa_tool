@@ -71,6 +71,25 @@ def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFr
         runs["date"] = pd.to_datetime(runs["date"], format="%Y-%m-%d %H:%M:%S")
     return runs.sort_values("date", ascending=False)
 
+
+@st.cache_data(show_spinner=False)
+def load_run_summary(db_path: str) -> dict[str, Any] | None:
+    """Load the precomputed overview metrics when the database provides them."""
+    path = Path(db_path)
+    try:
+        if path.suffix == ".duckdb":
+            import duckdb
+
+            with duckdb.connect(str(path), read_only=True) as connection:
+                summary = connection.execute("SELECT * FROM run_summary LIMIT 1").df()
+        else:
+            engine = create_engine(f"sqlite:///{path}")
+            summary = pd.read_sql_query("SELECT * FROM run_summary LIMIT 1", engine)
+    except Exception:  # A summary table is optional for existing databases.
+        return None
+
+    return summary.iloc[0].to_dict() if not summary.empty else None
+
 def metric_columns(runs: pd.DataFrame) -> list[str]:
     return [
         column

@@ -24,6 +24,41 @@ TOP_SUMMARY_LABELS = {
     "total_runtime": "Total runtime",
 }
 
+TAB_DESCRIPTIONS = {
+    "all_runs": "Search, filter, and inspect every run.",
+    "versions": "See how results change between versions.",
+    "models": "Compare performance across models.",
+    "compare_versions": "Compare two versions side by side.",
+    "compare_collection": "Build custom run collections to compare.",
+    "compare_run": "Compare two individual runs directly.",
+    "pie_charts": "Explore metric distributions visually.",
+    "run_detail": "Open detailed time-series artifacts.",
+}
+
+
+def show_navigation_cards(
+    available_tabs: list[tuple[str, str]],
+    tab_state_key: str,
+) -> None:
+    """Show prominent overview links for the enabled analysis views."""
+    st.markdown("### Explore the database")
+    st.caption("Choose a view to jump straight into the analysis.")
+    columns = st.columns(3)
+    for index, (key, label) in enumerate(available_tabs):
+        with columns[index % len(columns)]:
+            with st.container(border=True):
+                st.markdown(f"#### {label}")
+                st.caption(TAB_DESCRIPTIONS.get(key, ""))
+                st.button(
+                    f"Open {label}",
+                    key=f"overview_nav_{key}",
+                    use_container_width=True,
+                    on_click=lambda selected_label=label: st.session_state.__setitem__(
+                        tab_state_key,
+                        selected_label,
+                    ),
+                )
+
 def show_intro(settings: dict[str, Any], db_path: Path) -> None:
     intro = settings["intro"]
     description = intro.get("description", "")
@@ -93,6 +128,45 @@ def show_summary(
         label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
         value = getattr(filtered[metric], aggregation)()
         summary_columns[index % len(summary_columns)].metric(label, f"{value:.4g}")
+
+
+def show_stored_summary(
+    summary: dict[str, Any],
+    settings: dict[str, Any],
+    tab_key: str,
+) -> None:
+    """Show summary metrics from the database's precomputed overview record."""
+    top_items, summary_metrics, summary_aggregations = tab_summary_options(
+        settings,
+        tab_key,
+        ["runtime", "memory_hwm"],
+    )
+    top_columns = st.columns(min(4, len(top_items))) if top_items else []
+    summary_values = {
+        "runs": summary.get("run_count"),
+        "versions": summary.get("version_count"),
+        "models": summary.get("model_count"),
+        "total_runtime": summary.get("total_runtime"),
+    }
+    for index, item in enumerate(top_items):
+        value = summary_values.get(item)
+        formatted_value = f"{value:.4g}" if isinstance(value, int | float) else "n/a"
+        top_columns[index % len(top_columns)].metric(TOP_SUMMARY_LABELS[item], formatted_value)
+
+    summary_items = [
+        (metric, aggregation)
+        for metric in summary_metrics
+        for aggregation in summary_aggregations
+    ]
+    if not summary_items:
+        return
+
+    summary_columns = st.columns(min(4, len(summary_items)))
+    for index, (metric, aggregation) in enumerate(summary_items):
+        value = summary.get(f"{aggregation}_{metric}")
+        formatted_value = f"{value:.4g}" if isinstance(value, int | float) else "n/a"
+        label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
+        summary_columns[index % len(summary_columns)].metric(label, formatted_value)
 
 def tab_summary_options(
     settings: dict[str, Any],
