@@ -29,6 +29,8 @@ dependencies = [
     "plotly>=6.8.0",
     "polars>=1.42.1",
     "pydantic>=2.13.4",
+    "rich>=15.0.0",
+    "rich-argparse>=1.7.0",
     "sqlalchemy>=2.0.51",
     "streamlit>=1.58.0",
 ]
@@ -57,7 +59,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["qa_tool"]
+packages = ["qa_tool", "qa_tool_ingest"]
 
 [tool.ruff]
 # Target modern Python

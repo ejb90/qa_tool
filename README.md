@@ -76,6 +76,31 @@ uv run python -m qa_tool.load_dummy_data \
 
 Each metadata file is expected to contain the run-level fields used by the app, including identifiers, model/version information, scalar metrics, and the artifact path.
 
+## Ingest a Run
+
+`qa_tool_ingest` appends a metadata JSON document to DuckDB, records its artifact directory, adds newly discovered JSON keys as columns, and rebuilds `run_summary`.
+
+```bash
+uv run python -m qa_tool_ingest store/my-run --metadata store/my-run/metadata.json
+```
+
+By default, every top-level JSON key is stored. Use an ingestion settings file to select or rename keys and define summary aggregates:
+
+```toml
+[database]
+path = "runs.duckdb"
+
+[input]
+include = ["uid", "model", "version", "date", "elapsed_seconds"]
+
+[input.rename]
+model = "device"
+
+[summary]
+distinct_columns = ["model", "version"]
+mean_columns = ["elapsed_seconds"]
+```
+
 ## Artifact Data
 
 Each run has an artifact directory under `store/`. The app uses the database row to find the artifact directory, then loads Parquet files from that directory when detailed time-series plots are needed.
@@ -90,6 +115,7 @@ Useful sections:
 
 - `[database]`: database path and artifact root
 - `[tabs]`: enable or disable app tabs
+- `[tables.all_runs].columns`: choose and order All Runs table columns
 - `[summaries]`: configure summary metrics per tab
 - `[plots]`: plot sizing
 - `[comparison.color_bounds]`: optional fixed colour limits for comparison deltas
@@ -98,9 +124,7 @@ Example colour bounds:
 
 ```toml
 [comparison.color_bounds]
-density = 0.1
-velocity = 0.05
-runtime = 10.0
+metric_name = 0.1
 ```
 
 Metrics without explicit bounds keep the automatic scaling behaviour.
@@ -114,7 +138,7 @@ uv run python performance_comparison/compare.py
 uv run python performance_comparison/plot_results.py
 ```
 
-Generated results include CSV/Markdown summaries and an HTML runtime plot.
+Generated results include CSV/Markdown summaries and an HTML performance plot.
 
 ## Development Checks
 
