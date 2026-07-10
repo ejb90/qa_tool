@@ -223,6 +223,7 @@ artifacts/
 runs.db.bak
 performance_comparison/generated*
 old_dbs/
+old/
 
 # OS-generated files
 .DS_Store
