@@ -1,3 +1,5 @@
+"""QA dashboard module for version views."""
+
 from __future__ import annotations
 
 try:

@@ -1,3 +1,5 @@
+"""QA dashboard module for summaries."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,38 +46,32 @@ def show_navigation_cards(
     st.caption("Choose a view to jump straight into the analysis.")
     columns = st.columns(3)
     for index, (key, label) in enumerate(available_tabs):
-        with columns[index % len(columns)]:
-            with st.container(border=True):
-                st.markdown(f"#### {label}")
-                st.caption(TAB_DESCRIPTIONS.get(key, ""))
-                st.button(
-                    f"Open {label}",
-                    key=f"overview_nav_{key}",
-                    use_container_width=True,
-                    on_click=lambda selected_label=label: st.session_state.__setitem__(
-                        tab_state_key,
-                        selected_label,
-                    ),
-                )
+        with columns[index % len(columns)], st.container(border=True):
+            st.markdown(f"#### {label}")
+            st.caption(TAB_DESCRIPTIONS.get(key, ""))
+            st.button(
+                f"Open {label}",
+                key=f"overview_nav_{key}",
+                use_container_width=True,
+                on_click=lambda selected_label=label: st.session_state.__setitem__(
+                    tab_state_key,
+                    selected_label,
+                ),
+            )
+
 
 def show_intro(settings: dict[str, Any], db_path: Path) -> None:
+    """Handle show intro."""
     intro = settings["intro"]
     description = intro.get("description", "")
-    links = [
-        link
-        for link in intro.get("links", [])
-        if link.get("label") and link.get("url")
-    ]
+    links = [link for link in intro.get("links", []) if link.get("label") and link.get("url")]
     artifact_root = settings["database"].get("artifact_root", "")
 
     if description:
         st.markdown(description)
 
     if links:
-        link_markdown = " | ".join(
-            f"[{link['label']}]({link['url']})"
-            for link in links
-        )
+        link_markdown = " | ".join(f"[{link['label']}]({link['url']})" for link in links)
         st.markdown(link_markdown)
 
     info_items = []
@@ -86,12 +82,14 @@ def show_intro(settings: dict[str, Any], db_path: Path) -> None:
     if info_items:
         st.caption("  |  ".join(info_items))
 
+
 def show_summary(
     filtered: pd.DataFrame,
     top_items: list[str],
     metrics: list[str],
     aggregations: list[str],
 ) -> None:
+    """Handle show summary."""
     top_items = [item for item in top_items if item in TOP_SUMMARY_LABELS]
     if top_items:
         top_columns = st.columns(min(4, len(top_items)))
@@ -106,11 +104,7 @@ def show_summary(
                 value = "n/a"
             top_columns[index % len(top_columns)].metric(TOP_SUMMARY_LABELS[item], value)
 
-    summary_items = [
-        (metric, aggregation)
-        for metric in metrics
-        for aggregation in aggregations
-    ]
+    summary_items = [(metric, aggregation) for metric in metrics for aggregation in aggregations]
     if not summary_items:
         return
 
@@ -131,22 +125,20 @@ def show_stored_summary(
     summary: dict[str, Any],
 ) -> None:
     """Render every displayable value supplied by the summary table."""
-    display_items = [
-        (name, value)
-        for name, value in summary.items()
-        if name not in {"summary_id", "refreshed_at"}
-    ]
+    display_items = [(name, value) for name, value in summary.items() if name not in {"summary_id", "refreshed_at"}]
     summary_columns = st.columns(min(4, len(display_items)))
     for index, (name, value) in enumerate(display_items):
         formatted_value = f"{value:.4g}" if isinstance(value, int | float) else "n/a"
         label = str(name).replace("_", " ").title()
         summary_columns[index % len(summary_columns)].metric(label, formatted_value)
 
+
 def tab_summary_options(
     settings: dict[str, Any],
     tab_key: str,
     available_metrics: list[str],
 ) -> tuple[list[str], list[str], list[str]]:
+    """Handle tab summary options."""
     default_summary = settings["summaries"]["default"]
     tab_summary = settings["summaries"]["tabs"].get(tab_key, {})
     fallback_top = ["runs", "versions", "models"]
@@ -171,11 +163,10 @@ def tab_summary_options(
         else []
     )
     summary_aggregations = [
-        aggregation
-        for aggregation in configured_aggregations
-        if aggregation in SUMMARY_AGGREGATIONS
+        aggregation for aggregation in configured_aggregations if aggregation in SUMMARY_AGGREGATIONS
     ]
     return top_items, summary_metrics, summary_aggregations
+
 
 def show_tab_summary(
     filtered: pd.DataFrame,
@@ -183,6 +174,7 @@ def show_tab_summary(
     tab_key: str,
     available_metrics: list[str],
 ) -> None:
+    """Handle show tab summary."""
     top_items, summary_metrics, summary_aggregations = tab_summary_options(
         settings,
         tab_key,
@@ -190,7 +182,9 @@ def show_tab_summary(
     )
     show_summary(filtered, top_items, summary_metrics, summary_aggregations)
 
+
 def modified_filtered_runs(filtered: pd.DataFrame, tab_key: str) -> pd.DataFrame:
+    """Handle modified filtered runs."""
     if "modified" not in filtered.columns:
         return filtered
 

@@ -10,10 +10,7 @@ from typing import Any
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Merge nested ingestion settings without losing default sections."""
-    merged = {
-        key: value.copy() if isinstance(value, dict) else value
-        for key, value in base.items()
-    }
+    merged = {key: value.copy() if isinstance(value, dict) else value for key, value in base.items()}
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = deep_merge(merged[key], value)
@@ -24,9 +21,7 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 def load_settings(path: str | Path | None = None) -> dict[str, Any]:
     """Load packaged defaults with an optional TOML override."""
-    defaults = tomllib.loads(
-        files("qa_tool_ingest").joinpath("default_settings.toml").read_text(encoding="utf-8")
-    )
+    defaults = tomllib.loads(files("qa_tool_ingest").joinpath("default_settings.toml").read_text(encoding="utf-8"))
     if path is None:
         return defaults
 

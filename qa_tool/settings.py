@@ -1,3 +1,5 @@
+"""QA dashboard module for settings."""
+
 from __future__ import annotations
 
 import os
@@ -8,17 +10,14 @@ from typing import Any
 
 import streamlit as st
 
-
 SETTINGS_ENV_VAR = "QA_TOOL_SETTINGS"
 DEFAULT_SETTINGS_RESOURCE = "default_settings.toml"
 PACKAGE_NAME = __package__ or "qa_tool"
 
 
 def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = {
-        key: value.copy() if isinstance(value, dict) else value
-        for key, value in base.items()
-    }
+    """Handle deep merge settings."""
+    merged = {key: value.copy() if isinstance(value, dict) else value for key, value in base.items()}
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = deep_merge_settings(merged[key], value)
@@ -28,11 +27,13 @@ def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[
 
 
 def load_toml_file(path: Path) -> dict[str, Any]:
+    """Handle load toml file."""
     with path.open("rb") as settings_file:
         return tomllib.load(settings_file)
 
 
 def load_packaged_defaults() -> dict[str, Any]:
+    """Handle load packaged defaults."""
     try:
         settings_resource = files(PACKAGE_NAME).joinpath(DEFAULT_SETTINGS_RESOURCE)
         settings_text = settings_resource.read_text(encoding="utf-8")
@@ -42,6 +43,7 @@ def load_packaged_defaults() -> dict[str, Any]:
 
 
 def override_settings_path(settings_path: str | Path | None = None) -> Path | None:
+    """Handle override settings path."""
     if settings_path:
         return Path(settings_path)
     if env_path := os.environ.get(SETTINGS_ENV_VAR):
@@ -51,6 +53,7 @@ def override_settings_path(settings_path: str | Path | None = None) -> Path | No
 
 @st.cache_data(show_spinner=False)
 def load_settings(settings_path: str | Path | None = None) -> dict[str, Any]:
+    """Handle load settings."""
     settings = load_packaged_defaults()
     override_path = override_settings_path(settings_path)
     if override_path is None:
@@ -61,6 +64,7 @@ def load_settings(settings_path: str | Path | None = None) -> dict[str, Any]:
 
 
 def configured_metrics(configured: list[str], available: list[str], fallback: list[str]) -> list[str]:
+    """Handle configured metrics."""
     selected = [metric for metric in configured if metric in available]
     if selected:
         return selected

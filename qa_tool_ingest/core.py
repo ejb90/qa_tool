@@ -9,7 +9,6 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-
 NUMERIC_TYPE_PREFIXES = (
     "TINYINT",
     "SMALLINT",
@@ -29,10 +28,11 @@ NUMERIC_TYPE_PREFIXES = (
 
 def quote_identifier(name: str) -> str:
     """Quote a DuckDB identifier from a configured or JSON-derived name."""
-    return f'"{name.replace("\"", "\"\"")}"'
+    escaped_name = name.replace('"', '""')
+    return f'"{escaped_name}"'
 
 
-def normalise_json_value(value: Any) -> Any:
+def normalise_json_value(value: object) -> object:
     """Keep scalar values native and serialize structured JSON for DuckDB."""
     if isinstance(value, dict | list):
         return json.dumps(value, sort_keys=True)
@@ -51,11 +51,7 @@ def metadata_row(
     rename = input_settings.get("rename", {})
 
     selected_keys = include or list(metadata)
-    row = {
-        key: normalise_json_value(metadata[key])
-        for key in selected_keys
-        if key in metadata and key not in exclude
-    }
+    row = {key: normalise_json_value(metadata[key]) for key in selected_keys if key in metadata and key not in exclude}
     for output_column, source_key in rename.items():
         if source_key not in metadata:
             raise ValueError(f"Configured JSON key `{source_key}` was not found")
@@ -81,9 +77,7 @@ def table_columns(connection: duckdb.DuckDBPyConnection, table_name: str) -> dic
     """Return a table's columns and DuckDB types."""
     return {
         str(name): str(type_name)
-        for name, type_name, *_ in connection.execute(
-            f"DESCRIBE {quote_identifier(table_name)}"
-        ).fetchall()
+        for name, type_name, *_ in connection.execute(f"DESCRIBE {quote_identifier(table_name)}").fetchall()
     }
 
 
@@ -97,9 +91,7 @@ def append_row(
     connection.register("incoming_run", incoming)
     try:
         if not table_exists(connection, table_name):
-            connection.execute(
-                f"CREATE TABLE {quote_identifier(table_name)} AS SELECT * FROM incoming_run"
-            )
+            connection.execute(f"CREATE TABLE {quote_identifier(table_name)} AS SELECT * FROM incoming_run")
             return
 
         existing_columns = table_columns(connection, table_name)
@@ -107,15 +99,11 @@ def append_row(
         for column, type_name in incoming_columns.items():
             if column not in existing_columns:
                 connection.execute(
-                    f"ALTER TABLE {quote_identifier(table_name)} "
-                    f"ADD COLUMN {quote_identifier(column)} {type_name}"
+                    f"ALTER TABLE {quote_identifier(table_name)} ADD COLUMN {quote_identifier(column)} {type_name}"
                 )
 
         columns = ", ".join(quote_identifier(column) for column in row)
-        connection.execute(
-            f"INSERT INTO {quote_identifier(table_name)} ({columns}) "
-            f"SELECT {columns} FROM incoming_run"
-        )
+        connection.execute(f"INSERT INTO {quote_identifier(table_name)} ({columns}) SELECT {columns} FROM incoming_run")
     finally:
         connection.unregister("incoming_run")
 
@@ -134,16 +122,12 @@ def refresh_summary(
     expressions = ["CURRENT_TIMESTAMP AS refreshed_at", "COUNT(*) AS run_count"]
     for column in summary_settings.get("distinct_columns", []):
         if column in columns:
-            expressions.append(
-                f"COUNT(DISTINCT {quote_identifier(column)}) AS {quote_identifier(f'{column}_count')}"
-            )
+            expressions.append(f"COUNT(DISTINCT {quote_identifier(column)}) AS {quote_identifier(f'{column}_count')}")
     for column in summary_settings.get("mean_columns", []):
         type_name = columns.get(column, "").upper()
         if not type_name.startswith(NUMERIC_TYPE_PREFIXES):
             continue
-        expressions.append(
-            f"AVG({quote_identifier(column)}) AS {quote_identifier(f'mean_{column}')}"
-        )
+        expressions.append(f"AVG({quote_identifier(column)}) AS {quote_identifier(f'mean_{column}')}")
 
     connection.execute(
         f"CREATE OR REPLACE TABLE {quote_identifier(summary_table)} AS "

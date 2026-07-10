@@ -1,3 +1,5 @@
+"""QA dashboard module for data."""
+
 from __future__ import annotations
 
 from io import BytesIO
@@ -6,7 +8,6 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import create_engine
 
 try:
     from qa_tool.settings import configured_metrics
@@ -16,24 +17,23 @@ except ModuleNotFoundError:
 
 METRIC_EXCLUDE_COLUMNS = {"uid", "name", "model", "version", "date"}
 
+
 def normalize_run_columns(
     runs: pd.DataFrame,
     model_column: str,
     version_column: str,
 ) -> pd.DataFrame:
+    """Handle normalize run columns."""
     required_columns = {
         "model": model_column,
         "version": version_column,
     }
     missing_columns = [
-        source_column
-        for source_column in required_columns.values()
-        if source_column not in runs.columns
+        source_column for source_column in required_columns.values() if source_column not in runs.columns
     ]
     if missing_columns:
         raise ValueError(
-            "Missing configured database column(s): "
-            + ", ".join(f"`{column}`" for column in missing_columns)
+            "Missing configured database column(s): " + ", ".join(f"`{column}`" for column in missing_columns)
         )
 
     rename_columns = {
@@ -59,17 +59,18 @@ def normalize_run_columns(
         runs["name"] = runs["uid"].astype(str)
     return runs
 
+
 @st.cache_data(show_spinner=False)
 def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFrame:
+    """Handle load runs."""
     path = Path(db_path)
-    if path.suffix == ".duckdb":
-        import duckdb
+    if path.suffix != ".duckdb":
+        raise ValueError("QA Tool requires a DuckDB database with a `.duckdb` extension.")
 
-        with duckdb.connect(str(path), read_only=True) as connection:
-            runs = connection.execute("SELECT * FROM runs").df()
-    else:
-        engine = create_engine(f"sqlite:///{path}")
-        runs = pd.read_sql_table("runs", engine)
+    import duckdb
+
+    with duckdb.connect(str(path), read_only=True) as connection:
+        runs = connection.execute("SELECT * FROM runs").df()
 
     runs = normalize_run_columns(runs, model_column, version_column)
     if not pd.api.types.is_datetime64_any_dtype(runs["date"]):
@@ -81,15 +82,13 @@ def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFr
 def load_run_summary(db_path: str) -> dict[str, Any] | None:
     """Load the precomputed overview metrics when the database provides them."""
     path = Path(db_path)
+    if path.suffix != ".duckdb":
+        return None
     try:
-        if path.suffix == ".duckdb":
-            import duckdb
+        import duckdb
 
-            with duckdb.connect(str(path), read_only=True) as connection:
-                summary = connection.execute("SELECT * FROM run_summary LIMIT 1").df()
-        else:
-            engine = create_engine(f"sqlite:///{path}")
-            summary = pd.read_sql_query("SELECT * FROM run_summary LIMIT 1", engine)
+        with duckdb.connect(str(path), read_only=True) as connection:
+            summary = connection.execute("SELECT * FROM run_summary LIMIT 1").df()
     except Exception:  # A summary table is optional for existing databases.
         return None
 
@@ -97,31 +96,36 @@ def load_run_summary(db_path: str) -> dict[str, Any] | None:
 
 
 def metric_columns(runs: pd.DataFrame) -> list[str]:
-    return [
-        column
-        for column in runs.select_dtypes(include="number").columns
-        if column not in METRIC_EXCLUDE_COLUMNS
-    ]
+    """Handle metric columns."""
+    return [column for column in runs.select_dtypes(include="number").columns if column not in METRIC_EXCLUDE_COLUMNS]
+
 
 @st.cache_data(show_spinner=False)
 def dataframe_to_csv(dataframe: pd.DataFrame) -> bytes:
+    """Handle dataframe to csv."""
     return dataframe.to_csv(index=False).encode("utf-8")
+
 
 @st.cache_data(show_spinner=False)
 def dataframe_to_json(dataframe: pd.DataFrame) -> bytes:
+    """Handle dataframe to json."""
     return dataframe.to_json(orient="records", date_format="iso", indent=2).encode("utf-8")
+
 
 @st.cache_data(show_spinner=False)
 def dataframe_to_pickle(dataframe: pd.DataFrame) -> bytes:
+    """Handle dataframe to pickle."""
     buffer = BytesIO()
     dataframe.to_pickle(buffer)
     return buffer.getvalue()
+
 
 def filter_runs(
     runs: pd.DataFrame,
     metrics: list[str],
     settings: dict[str, Any],
 ) -> pd.DataFrame:
+    """Handle filter runs."""
     defaults = settings["defaults"]
     with st.sidebar:
         st.header("Filters")
@@ -150,22 +154,18 @@ def filter_runs(
             max_value=max_date,
         )
 
-    filtered = runs[
-        runs["model"].isin(models)
-        & runs["version"].isin(versions)
-    ].copy()
+    filtered = runs[runs["model"].isin(models) & runs["version"].isin(versions)].copy()
 
     if len(date_range) == 2:
         start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
-        filtered = filtered[
-            (filtered["date"] >= start)
-            & (filtered["date"] < end + pd.Timedelta(days=1))
-        ]
+        filtered = filtered[(filtered["date"] >= start) & (filtered["date"] < end + pd.Timedelta(1, unit="day"))]
 
     st.session_state["summary_metrics"] = selected_metrics
     return filtered
 
+
 def show_downloads(filtered: pd.DataFrame) -> None:
+    """Handle show downloads."""
     with st.expander("Filtered raw run downloads", expanded=False):
         csv_column, json_column, dataframe_column = st.columns(3)
         csv_column.download_button(

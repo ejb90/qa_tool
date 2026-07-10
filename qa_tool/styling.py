@@ -1,10 +1,12 @@
+"""QA dashboard module for styling."""
+
 from __future__ import annotations
 
 from typing import Any
 
 import pandas as pd
 import streamlit as st
-
+from pandas.io.formats.style import Styler
 
 COMPARISON_COLOR_SCHEMES = {
     "Red / blue": {
@@ -26,6 +28,7 @@ COMPARISON_COLOR_SCHEMES = {
 
 
 def comparison_color_bounds(settings: dict[str, Any]) -> dict[str, float]:
+    """Handle comparison color bounds."""
     configured_bounds = settings.get("comparison", {}).get("color_bounds", {})
     return {
         str(metric): float(bound)
@@ -35,6 +38,7 @@ def comparison_color_bounds(settings: dict[str, Any]) -> dict[str, float]:
 
 
 def comparison_column_bound(column: str, bounds: dict[str, float]) -> float | None:
+    """Handle comparison column bound."""
     if column in bounds:
         return bounds[column]
     for prefix in ("delta_", "uncertainty_"):
@@ -45,6 +49,7 @@ def comparison_column_bound(column: str, bounds: dict[str, float]) -> float | No
 
 
 def select_comparison_color_scheme(key: str) -> str:
+    """Handle select comparison color scheme."""
     return st.selectbox(
         "Cell colours",
         ["Red / blue", "Blue / orange", "Purple / green", "Off"],
@@ -57,7 +62,8 @@ def styled_comparison_table(
     dataframe: pd.DataFrame,
     settings: dict[str, Any],
     color_scheme: str = "Red / blue",
-) -> Any:
+) -> pd.DataFrame | Styler:
+    """Handle styled comparison table."""
     if color_scheme == "Off":
         return dataframe
 
@@ -68,11 +74,13 @@ def styled_comparison_table(
     )
 
     def alpha_style(red: int, green: int, blue: int, fraction: float) -> str:
+        """Handle alpha style."""
         fraction = min(1.0, max(0.0, fraction))
         alpha = 0.18 + 0.62 * fraction
         return f"background-color: rgba({red}, {green}, {blue}, {alpha:.3f})"
 
     def delta_styles(values: pd.Series, bound: float | None = None) -> list[str]:
+        """Handle delta styles."""
         numeric_values = pd.to_numeric(values, errors="coerce")
         max_abs = bound or numeric_values.abs().max()
         if pd.isna(max_abs) or max_abs == 0:
@@ -88,6 +96,7 @@ def styled_comparison_table(
         return styles
 
     def sequential_styles(values: pd.Series) -> list[str]:
+        """Handle sequential styles."""
         numeric_values = pd.to_numeric(values, errors="coerce")
         minimum = numeric_values.min()
         maximum = numeric_values.max()
@@ -101,6 +110,7 @@ def styled_comparison_table(
         ]
 
     def metric_row_styles(row: pd.Series) -> list[str]:
+        """Handle metric row styles."""
         styles = pd.Series("", index=row.index)
         metric = str(row.get("metric", ""))
         bound = color_bounds.get(metric)
@@ -141,8 +151,7 @@ def styled_comparison_table(
     sequential_columns = [
         column
         for column in dataframe.columns
-        if str(column).startswith("uncertainty")
-        or str(column) in {"base_std", "test_std", "std"}
+        if str(column).startswith("uncertainty") or str(column) in {"base_std", "test_std", "std"}
     ]
     for column in sequential_columns:
         values = pd.to_numeric(dataframe[column], errors="coerce").dropna()

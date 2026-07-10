@@ -13,7 +13,6 @@ from rich_argparse import RichHelpFormatter
 from qa_tool_ingest.core import ingest_run
 from qa_tool_ingest.settings import load_settings
 
-
 console = Console()
 
 
@@ -30,6 +29,11 @@ def parse_args() -> argparse.Namespace:
         help="Metadata JSON path (defaults to <artifact_dir>/metadata.json)",
     )
     parser.add_argument("--settings", type=Path, help="Optional ingestion TOML settings")
+    parser.add_argument(
+        "--database",
+        type=Path,
+        help="DuckDB path overriding [database].path in the settings file",
+    )
     return parser.parse_args()
 
 
@@ -37,8 +41,11 @@ def main() -> None:
     """Ingest one run artifact directory."""
     args = parse_args()
     metadata_path = args.metadata or args.artifact_dir / "metadata.json"
+    settings = load_settings(args.settings)
+    if args.database is not None:
+        settings["database"]["path"] = str(args.database)
     with console.status("[bold cyan]Ingesting metadata and refreshing summaries…"):
-        result = ingest_run(args.artifact_dir, metadata_path, load_settings(args.settings))
+        result = ingest_run(args.artifact_dir, metadata_path, settings)
 
     details = Table.grid(padding=(0, 2))
     details.add_column(style="bold cyan", justify="right")

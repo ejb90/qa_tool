@@ -1,3 +1,5 @@
+"""QA dashboard module for app."""
+
 from __future__ import annotations
 
 import argparse
@@ -48,6 +50,7 @@ except ModuleNotFoundError:
 
 
 def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:
+    """Handle cli settings path."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--settings")
     args, _ = parser.parse_known_args(argv)
@@ -55,6 +58,7 @@ def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:
 
 
 def main(settings_path: str | Path | None = None) -> None:
+    """Handle main."""
     try:
         settings = load_settings(settings_path or cli_settings_path())
     except FileNotFoundError as error:
@@ -71,6 +75,9 @@ def main(settings_path: str | Path | None = None) -> None:
     db_path = Path(settings["database"]["path"])
     if not db_path.exists():
         st.error(f"Could not find {db_path}. Run `uv run python -m qa_tool.load_dummy_data` first.")
+        return
+    if db_path.suffix != ".duckdb":
+        st.error("QA Tool requires a DuckDB database with a `.duckdb` extension.")
         return
 
     show_intro(settings, db_path)
@@ -90,11 +97,7 @@ def main(settings_path: str | Path | None = None) -> None:
         ("pie_charts", "Pie Charts"),
         ("run_detail", "Run Detail"),
     ]
-    enabled_tabs = [
-        (key, label)
-        for key, label in configured_tabs
-        if settings["tabs"].get(key, True)
-    ]
+    enabled_tabs = [(key, label) for key, label in configured_tabs if settings["tabs"].get(key, True)]
     if not enabled_tabs:
         st.warning("No views are enabled in the settings.")
         return
@@ -103,11 +106,7 @@ def main(settings_path: str | Path | None = None) -> None:
         key="main_tabs",
         on_change="rerun",
     )
-    open_tabs = [
-        (key, label, tab)
-        for (key, label), tab in zip(enabled_tabs, tab_containers)
-        if tab.open
-    ]
+    open_tabs = [(key, label, tab) for (key, label), tab in zip(enabled_tabs, tab_containers, strict=True) if tab.open]
     active_key, _, active_tab = open_tabs[0] if open_tabs else (*enabled_tabs[0], tab_containers[0])
     enabled_tab_labels = [(key, label) for key, label in enabled_tabs if key != "overview"]
 
@@ -127,8 +126,8 @@ def main(settings_path: str | Path | None = None) -> None:
             database_columns.get("model", "model"),
             database_columns.get("version", "version"),
         )
-    except ValueError as error:
-        st.error(str(error))
+    except Exception as error:
+        st.error(f"Could not load database: {error}")
         return
 
     metrics = metric_columns(runs)

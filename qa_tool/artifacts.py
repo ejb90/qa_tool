@@ -1,3 +1,5 @@
+"""QA dashboard module for artifacts."""
+
 from __future__ import annotations
 
 import json
@@ -16,23 +18,28 @@ TIME_COLUMN_PATTERN = re.compile(r"(^|[\s_-])time([\s_-]|$)|^t$", re.IGNORECASE)
 MATERIAL_COLUMN_PATTERN = re.compile(r"^materials?$", re.IGNORECASE)
 SERIES_SEPARATOR_PATTERN = re.compile(r"[\s_.:/|-]+")
 
+
 def run_display_name(row: pd.Series) -> str:
+    """Handle run display name."""
     return f"{row['model']} {row['version']} | {row['name']}"
 
+
 def run_option_match_index(run_options: pd.DataFrame, pasted_id: str) -> int | None:
+    """Handle run option match index."""
     if not pasted_id:
         return None
 
     pasted_id = pasted_id.strip()
     matches = run_options[
-        (run_options["uid"].astype(str) == pasted_id)
-        | (run_options["name"].astype(str) == pasted_id)
+        (run_options["uid"].astype(str) == pasted_id) | (run_options["name"].astype(str) == pasted_id)
     ]
     if matches.empty:
         return None
     return int(matches.index[0])
 
+
 def run_artifact_candidates(row: pd.Series, artifact_root: str) -> list[Path | str]:
+    """Handle run artifact candidates."""
     candidates: list[Path | str] = []
     artifact = row.get("artifact")
     if isinstance(artifact, str) and artifact:
@@ -43,7 +50,9 @@ def run_artifact_candidates(row: pd.Series, artifact_root: str) -> list[Path | s
         candidates.extend([root / str(row["uid"]), root / str(row["name"])])
     return candidates
 
+
 def first_local_artifact_path(row: pd.Series, artifact_root: str) -> Path | None:
+    """Handle first local artifact path."""
     for candidate in run_artifact_candidates(row, artifact_root):
         if isinstance(candidate, str) and candidate.startswith("s3://"):
             continue
@@ -62,18 +71,19 @@ def first_local_artifact_path(row: pd.Series, artifact_root: str) -> Path | None
                 return parent
     return None
 
+
 def parquet_files_for_run(row: pd.Series, artifact_root: str) -> dict[str, Path]:
+    """Handle parquet files for run."""
     artifact_path = first_local_artifact_path(row, artifact_root)
     if artifact_path is None:
         return {}
     if artifact_path.is_file():
         return {artifact_path.name: artifact_path} if artifact_path.suffix.lower() == ".parquet" else {}
-    return {
-        parquet_file.name: parquet_file
-        for parquet_file in sorted(artifact_path.rglob("*.parquet"))
-    }
+    return {parquet_file.name: parquet_file for parquet_file in sorted(artifact_path.rglob("*.parquet"))}
+
 
 def render_artifact_file(path: Path) -> None:
+    """Handle render artifact file."""
     suffix = path.suffix.lower()
     if is_tar_artifact(path):
         render_tar_artifact(path)
@@ -112,24 +122,32 @@ def render_artifact_file(path: Path) -> None:
                 use_container_width=True,
             )
 
+
 def find_time_column(dataframe: pd.DataFrame) -> str | None:
+    """Handle find time column."""
     for column in dataframe.columns:
         if TIME_COLUMN_PATTERN.search(str(column)):
             return str(column)
     return None
 
+
 def parquet_plot_key(path: Path, column: str) -> str:
+    """Handle parquet plot key."""
     safe_path = re.sub(r"\W+", "_", str(path))
     safe_column = re.sub(r"\W+", "_", column)
     return f"parquet_line_{safe_path}_{safe_column}"
 
+
 def material_column(dataframe: pd.DataFrame) -> str | None:
+    """Handle material column."""
     for column in dataframe.columns:
         if MATERIAL_COLUMN_PATTERN.search(str(column)):
             return str(column)
     return None
 
+
 def split_series_column(column: str, default_thing: str | None = None) -> tuple[str, str]:
+    """Handle split series column."""
     first_part = SERIES_SEPARATOR_PATTERN.split(column, maxsplit=1)[0].lower()
     if first_part in {"material", "mat"}:
         return default_thing or column, column
@@ -139,15 +157,15 @@ def split_series_column(column: str, default_thing: str | None = None) -> tuple[
         return parts[0], "_".join(parts[1:])
     return default_thing or column, column
 
+
 def wide_parquet_series(
     dataframe: pd.DataFrame,
     time_column: str,
     default_thing: str | None = None,
 ) -> dict[str, pd.DataFrame]:
+    """Handle wide parquet series."""
     numeric_columns = [
-        column
-        for column in dataframe.select_dtypes(include="number").columns
-        if str(column) != time_column
+        column for column in dataframe.select_dtypes(include="number").columns if str(column) != time_column
     ]
     series_frames: dict[str, list[pd.DataFrame]] = {}
     for column in numeric_columns:
@@ -155,20 +173,17 @@ def wide_parquet_series(
         series_frame = dataframe[[time_column, column]].rename(columns={column: "value"})
         series_frame["material"] = material
         series_frames.setdefault(thing, []).append(series_frame)
-    return {
-        thing: pd.concat(frames, ignore_index=True)
-        for thing, frames in series_frames.items()
-    }
+    return {thing: pd.concat(frames, ignore_index=True) for thing, frames in series_frames.items()}
+
 
 def long_parquet_series(
     dataframe: pd.DataFrame,
     time_column: str,
     material_column_name: str,
 ) -> dict[str, pd.DataFrame]:
+    """Handle long parquet series."""
     value_columns = [
-        column
-        for column in dataframe.select_dtypes(include="number").columns
-        if str(column) != time_column
+        column for column in dataframe.select_dtypes(include="number").columns if str(column) != time_column
     ]
     return {
         str(column): dataframe[[time_column, material_column_name, column]].rename(
@@ -177,17 +192,21 @@ def long_parquet_series(
         for column in value_columns
     }
 
+
 def parquet_series_by_thing(
     dataframe: pd.DataFrame,
     time_column: str,
     default_thing: str | None = None,
 ) -> dict[str, pd.DataFrame]:
+    """Handle parquet series by thing."""
     material_column_name = material_column(dataframe)
     if material_column_name is not None:
         return long_parquet_series(dataframe, time_column, material_column_name)
     return wide_parquet_series(dataframe, time_column, default_thing)
 
+
 def selected_materials(path: Path, thing: str, materials: list[str]) -> list[str]:
+    """Handle selected materials."""
     checkbox_columns = st.columns(min(4, len(materials)))
     selected = []
     for index, material in enumerate(materials):
@@ -200,7 +219,9 @@ def selected_materials(path: Path, thing: str, materials: list[str]) -> list[str
             selected.append(material)
     return selected
 
+
 def render_parquet_series_plot(path: Path, thing: str, series_data: pd.DataFrame, time_column: str) -> None:
+    """Handle render parquet series plot."""
     materials = sorted(series_data["material"].astype(str).unique())
     st.markdown(f"**{thing}**")
     selected = selected_materials(path, thing, materials)
@@ -225,7 +246,9 @@ def render_parquet_series_plot(path: Path, thing: str, series_data: pd.DataFrame
     )
     st.plotly_chart(fig, use_container_width=True)
 
+
 def render_parquet_time_plots(path: Path, dataframe: pd.DataFrame) -> None:
+    """Handle render parquet time plots."""
     time_column = find_time_column(dataframe)
     if time_column is None:
         return
@@ -233,16 +256,22 @@ def render_parquet_time_plots(path: Path, dataframe: pd.DataFrame) -> None:
     for thing, series_data in parquet_series_by_thing(dataframe, time_column, path.stem).items():
         render_parquet_series_plot(path, thing, series_data, time_column)
 
+
 def render_parquet_artifact(path: Path) -> None:
+    """Handle render parquet artifact."""
     dataframe = pd.read_parquet(path)
     render_parquet_time_plots(path, dataframe)
     st.dataframe(dataframe, use_container_width=True)
 
+
 def is_tar_artifact(path: Path) -> bool:
+    """Handle is tar artifact."""
     name = path.name.lower()
     return name.endswith((".tar", ".tar.gz", ".tgz"))
 
+
 def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
+    """Handle safe extract tar."""
     destination = destination.resolve()
     for member in tar.getmembers():
         member_path = (destination / member.name).resolve()
@@ -250,7 +279,9 @@ def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
             raise ValueError(f"Unsafe path in archive: {member.name}")
     tar.extractall(destination)
 
+
 def render_tar_artifact(path: Path) -> None:
+    """Handle render tar artifact."""
     st.caption(f"Archive: `{path}`")
     with tarfile.open(path) as tar:
         members = [member for member in tar.getmembers() if member.isfile()]
@@ -270,7 +301,9 @@ def render_tar_artifact(path: Path) -> None:
             for artifact_file in sorted(item for item in temp_path.rglob("*") if item.is_file()):
                 render_artifact_file(artifact_file)
 
+
 def show_run_artifacts(row: pd.Series, artifact_root: str) -> None:
+    """Handle show run artifacts."""
     st.subheader("Artifacts")
     candidates = run_artifact_candidates(row, artifact_root)
     if not candidates:
@@ -300,15 +333,14 @@ def show_run_artifacts(row: pd.Series, artifact_root: str) -> None:
         return
 
     st.info("No local artifacts found for this run.")
-    st.caption(
-        "Checked: "
-        + ", ".join(f"`{candidate}`" for candidate in candidates)
-    )
+    st.caption("Checked: " + ", ".join(f"`{candidate}`" for candidate in candidates))
 
 
 def compare_run_plot_key(top_path: Path, bottom_path: Path, thing: str, material: str) -> str:
+    """Handle compare run plot key."""
     key_text = f"{top_path}_{bottom_path}_{thing}_{material}"
     return "compare_run_" + re.sub(r"\W+", "_", key_text)
+
 
 def selected_compare_materials(
     top_path: Path,
@@ -316,6 +348,7 @@ def selected_compare_materials(
     thing: str,
     materials: list[str],
 ) -> list[str]:
+    """Handle selected compare materials."""
     checkbox_columns = st.columns(min(4, len(materials)))
     selected = []
     for index, material in enumerate(materials):
@@ -328,18 +361,22 @@ def selected_compare_materials(
             selected.append(material)
     return selected
 
+
 def parquet_thing_series(path: Path) -> tuple[str | None, dict[str, pd.DataFrame]]:
+    """Handle parquet thing series."""
     dataframe = pd.read_parquet(path)
     time_column = find_time_column(dataframe)
     if time_column is None:
         return None, {}
     return time_column, parquet_series_by_thing(dataframe, time_column, path.stem)
 
+
 def compare_run_parquet_pairs(
     top_run: pd.Series,
     bottom_run: pd.Series,
     artifact_root: str,
 ) -> list[dict[str, object]]:
+    """Handle compare run parquet pairs."""
     top_files = parquet_files_for_run(top_run, artifact_root)
     bottom_files = parquet_files_for_run(bottom_run, artifact_root)
     pairs = []
@@ -369,6 +406,7 @@ def compare_run_parquet_pairs(
         )
     return pairs
 
+
 def render_compare_run_series_plot(
     top_path: Path,
     bottom_path: Path,
@@ -381,6 +419,7 @@ def render_compare_run_series_plot(
     bottom_label: str,
     plot_height: int,
 ) -> None:
+    """Handle render compare run series plot."""
     top_materials = set(top_series["material"].astype(str).unique())
     bottom_materials = set(bottom_series["material"].astype(str).unique())
     shared_materials = sorted(top_materials.intersection(bottom_materials))
@@ -401,10 +440,7 @@ def render_compare_run_series_plot(
 
     figure = go.Figure()
     palette = px.colors.qualitative.Plotly
-    color_by_material = {
-        material: palette[index % len(palette)]
-        for index, material in enumerate(shared_materials)
-    }
+    color_by_material = {material: palette[index % len(palette)] for index, material in enumerate(shared_materials)}
     for material in selected_materials_for_plot:
         top_material_data = top_series[top_series["material"].astype(str) == material]
         bottom_material_data = bottom_series[bottom_series["material"].astype(str) == material]
@@ -438,12 +474,14 @@ def render_compare_run_series_plot(
     )
     st.plotly_chart(figure, use_container_width=True)
 
+
 def show_compare_run_artifacts(
     top_run: pd.Series,
     bottom_run: pd.Series,
     artifact_root: str,
     plot_height: int,
 ) -> None:
+    """Handle show compare run artifacts."""
     top_label = "top"
     bottom_label = "bottom"
     for pair in compare_run_parquet_pairs(top_run, bottom_run, artifact_root):

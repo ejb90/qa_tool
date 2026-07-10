@@ -1,3 +1,5 @@
+"""QA dashboard module for exports."""
+
 from __future__ import annotations
 
 import re
@@ -9,10 +11,12 @@ import streamlit as st
 
 
 def export_name(value: str) -> str:
+    """Handle export name."""
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_") or "data"
 
 
 def dataframes_to_zip(dataframes: dict[str, pd.DataFrame]) -> bytes:
+    """Handle dataframes to zip."""
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, dataframe in dataframes.items():
@@ -29,6 +33,7 @@ def show_export_download(
     file_name: str,
     key: str,
 ) -> None:
+    """Handle show export download."""
     if not dataframes:
         return
     st.download_button(

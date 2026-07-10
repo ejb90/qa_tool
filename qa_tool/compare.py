@@ -1,3 +1,5 @@
+"""QA dashboard module for compare."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -17,6 +19,7 @@ def comparison_metadata(
     base_runs: pd.DataFrame,
     test_runs: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Handle comparison metadata."""
     return pd.DataFrame(
         [
             {"item": "base_label", "value": base_label},
@@ -35,6 +38,7 @@ def comparison_coverage(
     test_runs: pd.DataFrame,
     test_label: str,
 ) -> pd.DataFrame:
+    """Handle comparison coverage."""
     base_models = set(base_runs["model"].dropna().astype(str))
     test_models = set(test_runs["model"].dropna().astype(str))
     rows = []
@@ -65,6 +69,7 @@ def build_collection_metric_deltas(
     test_label: str,
     metrics: list[str],
 ) -> pd.DataFrame:
+    """Handle build collection metric deltas."""
     base_summary = (
         base_runs.groupby("model")[metrics]
         .agg(["mean", "std", "count"])
@@ -133,6 +138,7 @@ def build_collection_comparison(
     test_label: str,
     metrics: list[str],
 ) -> pd.DataFrame:
+    """Handle build collection comparison."""
     base_runs = base_runs.copy()
     test_runs = test_runs.copy()
     base_runs[COLLECTION_LABEL_COLUMN] = base_label
@@ -141,9 +147,7 @@ def build_collection_comparison(
 
     means = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False)[metrics].mean()
     stds = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False)[metrics].std()
-    counts = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False).agg(
-        run_count=("uid", "count")
-    )
+    counts = comparison_data.groupby(["model", COLLECTION_LABEL_COLUMN], as_index=False).agg(run_count=("uid", "count"))
     mean_wide = means.pivot(index="model", columns=COLLECTION_LABEL_COLUMN, values=metrics)
     std_wide = stds.pivot(index="model", columns=COLLECTION_LABEL_COLUMN, values=metrics).fillna(0.0)
     count_wide = counts.pivot(index="model", columns=COLLECTION_LABEL_COLUMN, values="run_count")
@@ -168,12 +172,9 @@ def build_collection_comparison(
             base_count = count_wide.loc[model, base_label]
             test_count = count_wide.loc[model, test_label]
             row[f"delta_{metric}"] = (
-                mean_wide.loc[model, (metric, test_label)]
-                - mean_wide.loc[model, (metric, base_label)]
+                mean_wide.loc[model, (metric, test_label)] - mean_wide.loc[model, (metric, base_label)]
             )
-            row[f"uncertainty_{metric}"] = (
-                (base_std ** 2 / base_count) + (test_std ** 2 / test_count)
-            ) ** 0.5
+            row[f"uncertainty_{metric}"] = ((base_std**2 / base_count) + (test_std**2 / test_count)) ** 0.5
         rows.append(row)
 
     return pd.DataFrame(rows).sort_values("model")
@@ -185,6 +186,7 @@ def build_version_comparison(
     new_version: str,
     metrics: list[str],
 ) -> pd.DataFrame:
+    """Handle build version comparison."""
     return build_collection_comparison(
         base_runs=filtered[filtered["version"] == base_version],
         base_label=base_version,
@@ -195,6 +197,7 @@ def build_version_comparison(
 
 
 def build_run_scalar_comparison(top_run: pd.Series, bottom_run: pd.Series, metrics: list[str]) -> pd.DataFrame:
+    """Handle build run scalar comparison."""
     rows = []
     for metric in metrics:
         top_value = top_run.get(metric)
