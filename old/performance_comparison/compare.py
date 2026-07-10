@@ -602,9 +602,7 @@ def synthetic_runs(size: int) -> pd.DataFrame:
     )
     models = MODEL_NAMES[index % len(MODEL_NAMES)]
     dates = (
-        pd.Timestamp("2026-01-01")
-        + pd.to_timedelta(index % 365, unit="D")
-        + pd.to_timedelta(index % 86_400, unit="s")
+        pd.Timestamp("2026-01-01") + pd.to_timedelta(index % 365, unit="D") + pd.to_timedelta(index % 86_400, unit="s")
     )
     density_base = 0.15 + (index % len(MODEL_NAMES)) * 0.23
     velocity_base = 0.02 + (index % 200) / 2_000
@@ -631,10 +629,7 @@ def synthetic_runs(size: int) -> pd.DataFrame:
         "git_commit": [f"{(item * 2_654_435_761) % 0xFFFFFFFFFFFF:012x}" for item in index],
         "git_branch": np.take(["main", "develop", "release", "feature/shock", "hotfix"], index % 5),
         "git_tag": np.array(
-            [
-                f"tag-{major_item}.{minor_item}"
-                for major_item, minor_item in zip(major, minor, strict=True)
-            ]
+            [f"tag-{major_item}.{minor_item}" for major_item, minor_item in zip(major, minor, strict=True)]
         ),
         "code_version": versions,
         "compiler": np.take(["gcc", "clang", "intel", "nvhpc"], index % 4),
@@ -656,10 +651,7 @@ def synthetic_runs(size: int) -> pd.DataFrame:
     }
 
     for scalar_index, column in enumerate(SCALAR_METADATA_COLUMNS, start=1):
-        data[column] = (
-            (index % (97 + scalar_index)) * (0.01 * scalar_index)
-            + (index // (scalar_index + 3) % 11)
-        )
+        data[column] = (index % (97 + scalar_index)) * (0.01 * scalar_index) + (index // (scalar_index + 3) % 11)
 
     return pd.DataFrame(data)
 
@@ -733,9 +725,7 @@ def build_store_scaled_databases(
     max_size = max(sizes)
     rows = load_metadata(store_dir)
     if len(rows) < max_size:
-        raise ValueError(
-            f"Store only contains {len(rows)} metadata file(s), but requested {max_size}."
-        )
+        raise ValueError(f"Store only contains {len(rows)} metadata file(s), but requested {max_size}.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     database_paths = {}

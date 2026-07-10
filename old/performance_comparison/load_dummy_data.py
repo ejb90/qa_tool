@@ -132,10 +132,7 @@ def load_metadata(store_dir: str | Path = "store") -> list[dict[str, object]]:
 
 def ensure_sqlite_columns(connection: sqlite3.Connection) -> None:
     """Add artifact columns when loading into an existing SQLite table."""
-    existing_columns = {
-        row[1]
-        for row in connection.execute("PRAGMA table_info(runs)")
-    }
+    existing_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for column, column_type in SQLITE_EXTRA_COLUMNS.items():
         if column not in existing_columns:
             connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {column_type}")

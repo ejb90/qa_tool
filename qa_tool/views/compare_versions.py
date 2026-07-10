@@ -1,3 +1,5 @@
+"""QA dashboard module for compare versions."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,12 +21,14 @@ except ModuleNotFoundError:
     from styling import select_comparison_color_scheme, styled_comparison_table
     from views.common import show_comparison_cdf_plot, version_sort_key
 
+
 def show_version_comparison(
     filtered: pd.DataFrame,
     settings: dict[str, Any],
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show version comparison."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
@@ -84,7 +88,7 @@ def show_version_comparison(
     )
     fig.update_layout(
         height=plot_height,
-        margin=dict(l=10, r=10, t=44, b=10),
+        margin={"l": 10, "r": 10, "t": 44, "b": 10},
         xaxis_title="Model",
         yaxis_title=delta_column,
         coloraxis_showscale=False,
@@ -114,10 +118,7 @@ def show_version_comparison(
                 metrics,
             )
         ),
-        file_name=(
-            f"mean_differences_{export_name(base_version)}_to_"
-            f"{export_name(new_version)}.csv"
-        ),
+        file_name=(f"mean_differences_{export_name(base_version)}_to_{export_name(new_version)}.csv"),
         mime="text/csv",
         key="compare_versions_mean_differences_download",
         use_container_width=True,

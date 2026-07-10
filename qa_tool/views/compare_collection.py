@@ -1,3 +1,5 @@
+"""QA dashboard module for compare collection."""
+
 from __future__ import annotations
 
 import re
@@ -21,10 +23,12 @@ except ModuleNotFoundError:
     from styling import select_comparison_color_scheme, styled_comparison_table
     from views.common import show_comparison_cdf_plot
 
+
 def collection_parameter_columns(
     runs: pd.DataFrame,
     metrics: list[str],
 ) -> list[str]:
+    """Handle collection parameter columns."""
     excluded_columns = set(metrics)
     preferred_columns = [
         "version",
@@ -44,21 +48,15 @@ def collection_parameter_columns(
         "modified",
     ]
     available_columns = [
-        column
-        for column in runs.columns
-        if column not in excluded_columns and not runs[column].dropna().empty
+        column for column in runs.columns if column not in excluded_columns and not runs[column].dropna().empty
     ]
-    ordered_columns = [
-        column
-        for column in preferred_columns
-        if column in available_columns
-    ]
-    ordered_columns.extend(
-        sorted(column for column in available_columns if column not in ordered_columns)
-    )
+    ordered_columns = [column for column in preferred_columns if column in available_columns]
+    ordered_columns.extend(sorted(column for column in available_columns if column not in ordered_columns))
     return ordered_columns
 
+
 def compact_collection_label(field: str, match_mode: str, values: Sequence[Any]) -> str:
+    """Handle compact collection label."""
     clean_values = [str(value) for value in values if str(value)]
     if not clean_values:
         return f"{field}: empty"
@@ -69,11 +67,14 @@ def compact_collection_label(field: str, match_mode: str, values: Sequence[Any])
         first_values = f"{first_values}, +{len(clean_values) - 3}"
     return f"{field} {match_mode} {first_values}"
 
+
 def unique_string_values(runs: pd.DataFrame, field: str) -> list[str]:
+    """Handle unique string values."""
     return sorted(
         runs[field].dropna().astype(str).unique(),
         key=lambda value: value.lower(),
     )
+
 
 def select_datetime_collection(
     filtered: pd.DataFrame,
@@ -81,6 +82,7 @@ def select_datetime_collection(
     prefix: str,
     label: str,
 ) -> tuple[str, pd.DataFrame]:
+    """Handle select datetime collection."""
     values = pd.to_datetime(filtered[field], errors="coerce")
     valid_values = values.dropna()
     if valid_values.empty:
@@ -110,12 +112,14 @@ def select_datetime_collection(
     )
     return collection_name, selected_runs
 
+
 def select_bool_collection(
     filtered: pd.DataFrame,
     field: str,
     prefix: str,
     label: str,
 ) -> tuple[str, pd.DataFrame]:
+    """Handle select bool collection."""
     values = sorted(filtered[field].dropna().unique())
     selected_values = st.multiselect(
         f"{label} values",
@@ -132,12 +136,14 @@ def select_bool_collection(
     )
     return collection_name, selected_runs
 
+
 def string_collection_mask(
     values: pd.Series,
     match_mode: str,
     selected_values: Sequence[str],
     free_text: str,
 ) -> pd.Series:
+    """Handle string collection mask."""
     string_values = values.fillna("").astype(str)
     if match_mode == "Exact values":
         return string_values.isin(selected_values)
@@ -155,6 +161,7 @@ def string_collection_mask(
         return string_values.str.len() > 0
     return pd.Series(False, index=values.index)
 
+
 def select_string_collection(
     filtered: pd.DataFrame,
     field: str,
@@ -163,11 +170,12 @@ def select_string_collection(
     match_mode: str,
     default_exact_index: int,
 ) -> tuple[str, pd.DataFrame]:
+    """Handle select string collection."""
     value_options = unique_string_values(filtered, field)
     selected_values: list[str] = []
     free_text = ""
     if match_mode == "Exact values":
-        default_values = value_options[default_exact_index:default_exact_index + 1]
+        default_values = value_options[default_exact_index : default_exact_index + 1]
         selected_values = st.multiselect(
             f"{label} values",
             value_options,
@@ -199,6 +207,7 @@ def select_string_collection(
     )
     return collection_name, selected_runs
 
+
 def select_collection_runs(
     filtered: pd.DataFrame,
     field: str,
@@ -207,6 +216,7 @@ def select_collection_runs(
     match_mode: str,
     default_exact_index: int,
 ) -> tuple[str, pd.DataFrame]:
+    """Handle select collection runs."""
     if pd.api.types.is_datetime64_any_dtype(filtered[field]):
         return select_datetime_collection(filtered, field, prefix, label)
     if pd.api.types.is_bool_dtype(filtered[field]):
@@ -220,6 +230,7 @@ def select_collection_runs(
         default_exact_index,
     )
 
+
 def show_collection_comparison_result(
     base_runs: pd.DataFrame,
     base_label: str,
@@ -230,6 +241,7 @@ def show_collection_comparison_result(
     plot_height: int,
     key_prefix: str,
 ) -> None:
+    """Handle show collection comparison result."""
     if base_runs.empty or test_runs.empty:
         st.info("Both selected collections need data.")
         return
@@ -275,7 +287,7 @@ def show_collection_comparison_result(
     )
     fig.update_layout(
         height=plot_height,
-        margin=dict(l=10, r=10, t=44, b=10),
+        margin={"l": 10, "r": 10, "t": 44, "b": 10},
         xaxis_title="Model",
         yaxis_title=delta_column,
         coloraxis_showscale=False,
@@ -305,14 +317,12 @@ def show_collection_comparison_result(
                 metrics,
             )
         ),
-        file_name=(
-            f"mean_differences_{export_name(base_label)}_to_"
-            f"{export_name(test_label)}.csv"
-        ),
+        file_name=(f"mean_differences_{export_name(base_label)}_to_{export_name(test_label)}.csv"),
         mime="text/csv",
         key="compare_collection_mean_differences_download",
         use_container_width=True,
     )
+
 
 def show_compare_collection(
     filtered: pd.DataFrame,
@@ -320,6 +330,7 @@ def show_compare_collection(
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show compare collection."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
@@ -338,9 +349,8 @@ def show_compare_collection(
         key="compare_collection_parameter",
     )
     match_mode = "Exact values"
-    if (
-        not pd.api.types.is_datetime64_any_dtype(filtered[selected_field])
-        and not pd.api.types.is_bool_dtype(filtered[selected_field])
+    if not pd.api.types.is_datetime64_any_dtype(filtered[selected_field]) and not pd.api.types.is_bool_dtype(
+        filtered[selected_field]
     ):
         match_mode = st.selectbox(
             "Match",

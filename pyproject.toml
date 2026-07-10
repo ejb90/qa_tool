@@ -26,12 +26,12 @@ classifiers = [
 ]
 dependencies = [
     "duckdb>=1.4.3",
+    "marimo[sql]>=0.23.13",
     "plotly>=6.8.0",
     "polars>=1.42.1",
     "pydantic>=2.13.4",
     "rich>=15.0.0",
     "rich-argparse>=1.7.0",
-    "sqlalchemy>=2.0.51",
     "streamlit>=1.58.0",
 ]
 
@@ -130,13 +130,3 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-fail-under=90",
 ]
-
-[tool.uv.workspace]
-members = [
-    ".",
-    ".",
-    ".",
-]
-
-[tool.uv.sources]
-qa-tool = { workspace = true, editable = true }

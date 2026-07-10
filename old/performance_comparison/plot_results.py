@@ -44,10 +44,7 @@ def build_figure(series: dict[SeriesKey, list[tuple[int, float]]]) -> go.Figure:
         "#7c3aed",
     ]
     queries = sorted({query for query, _engine in series})
-    color_by_query = {
-        query: colors[index % len(colors)]
-        for index, query in enumerate(queries)
-    }
+    color_by_query = {query: colors[index % len(colors)] for index, query in enumerate(queries)}
 
     for query in queries:
         for engine, dash in (("SQLite", "solid"), ("DuckDB", "dash")):
@@ -64,12 +61,7 @@ def build_figure(series: dict[SeriesKey, list[tuple[int, float]]]) -> go.Figure:
                         "width": 2,
                     },
                     marker={"size": 7},
-                    hovertemplate=(
-                        "<b>%{fullData.name}</b><br>"
-                        "DB rows: %{x:,}<br>"
-                        "Runtime: %{y:.3f} ms"
-                        "<extra></extra>"
-                    ),
+                    hovertemplate=("<b>%{fullData.name}</b><br>DB rows: %{x:,}<br>Runtime: %{y:.3f} ms<extra></extra>"),
                 )
             )
 

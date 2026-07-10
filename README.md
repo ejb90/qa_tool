@@ -65,14 +65,7 @@ artifact_root = "./store"
 
 ## Rebuild The Database
 
-The loader reads metadata from `store/*/metadata.json` and writes both SQLite and DuckDB databases.
-
-```bash
-uv run python -m qa_tool.load_dummy_data \
-  --store-dir store \
-  --sqlite-db runs.db \
-  --duckdb-db runs.duckdb
-```
+The app uses DuckDB only. Ingest each run artifact with `qa_tool_ingest` to append its metadata and refresh the summary table.
 
 Each metadata file is expected to contain the run-level fields used by the app, including identifiers, model/version information, scalar metrics, and the artifact path.
 
@@ -82,6 +75,12 @@ Each metadata file is expected to contain the run-level fields used by the app, 
 
 ```bash
 uv run python -m qa_tool_ingest store/my-run --metadata store/my-run/metadata.json
+```
+
+The ingestion TOML's `[database].path` is the default destination. Override it per command with `--database`:
+
+```bash
+uv run python -m qa_tool_ingest store/my-run --settings ingest.toml --database other-runs.duckdb
 ```
 
 By default, every top-level JSON key is stored. Use an ingestion settings file to select or rename keys and define summary aggregates:

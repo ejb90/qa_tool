@@ -1,3 +1,5 @@
+"""QA dashboard module for models."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,21 +17,25 @@ except ModuleNotFoundError:
     from summaries import modified_filtered_runs, show_tab_summary
     from views.common import aggregate_runs, version_sort_key
 
+
 def show_models_tab(
     filtered: pd.DataFrame,
     settings: dict[str, Any],
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show models tab."""
     tab_filtered = modified_filtered_runs(filtered, "models")
     show_tab_summary(tab_filtered, settings, "models", metrics)
     show_model_tables(tab_filtered, metrics, plot_height)
+
 
 def show_model_tables(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show model tables."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
@@ -55,11 +61,13 @@ def show_model_tables(
         "models_download",
     )
 
+
 def show_model_version_plot(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
 ) -> dict[str, pd.DataFrame]:
+    """Handle show model version plot."""
     selected_model = st.selectbox("Plot model", sorted(filtered["model"].unique()))
     selected_metric = st.selectbox("Model plot metric", metrics)
     model_data = filtered[filtered["model"] == selected_model]
@@ -93,7 +101,7 @@ def show_model_version_plot(
     )
     fig.update_layout(
         height=plot_height,
-        margin=dict(l=10, r=10, t=36, b=10),
+        margin={"l": 10, "r": 10, "t": 36, "b": 10},
         xaxis_title="Version",
         yaxis_title=selected_metric,
     )

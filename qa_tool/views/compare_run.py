@@ -1,3 +1,5 @@
+"""QA dashboard module for compare run."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,15 +17,15 @@ try:
     from qa_tool.compare import build_run_scalar_comparison
     from qa_tool.styling import select_comparison_color_scheme, styled_comparison_table
 except ModuleNotFoundError:
-    from compare import build_run_scalar_comparison
-    from styling import select_comparison_color_scheme, styled_comparison_table
-
     from artifacts import (
         compare_run_parquet_pairs,
         run_display_name,
         run_option_match_index,
         show_compare_run_artifacts,
     )
+    from compare import build_run_scalar_comparison
+    from styling import select_comparison_color_scheme, styled_comparison_table
+
 
 def show_compare_run(
     filtered: pd.DataFrame,
@@ -31,6 +33,7 @@ def show_compare_run(
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show compare run."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return

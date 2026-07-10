@@ -1,3 +1,5 @@
+"""QA dashboard module for all runs."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -7,15 +9,14 @@ import streamlit as st
 
 
 def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
+    """Handle show all runs."""
     st.subheader("Runs")
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
 
     searchable_columns = [
-        column
-        for column in ["uid", "name", "model", "version", "artifact"]
-        if column in filtered.columns
+        column for column in ["uid", "name", "model", "version", "artifact"] if column in filtered.columns
     ]
     search_text = st.text_input(
         "Search runs",
@@ -26,11 +27,16 @@ def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
     if search_text and searchable_columns:
         search_mask = pd.Series(False, index=filtered.index)
         for column in searchable_columns:
-            search_mask |= filtered[column].fillna("").astype(str).str.contains(
-                search_text,
-                case=False,
-                regex=False,
-                na=False,
+            search_mask |= (
+                filtered[column]
+                .fillna("")
+                .astype(str)
+                .str.contains(
+                    search_text,
+                    case=False,
+                    regex=False,
+                    na=False,
+                )
             )
         table_data = filtered[search_mask]
 
@@ -62,9 +68,7 @@ def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
     start_index = (page_number - 1) * page_size
     end_index = min(start_index + page_size, len(table_data))
     page_data = table_data.iloc[start_index:end_index]
-    pagination_columns[2].caption(
-        f"Showing {start_index + 1:,}-{end_index:,} of {len(table_data):,} runs"
-    )
+    pagination_columns[2].caption(f"Showing {start_index + 1:,}-{end_index:,} of {len(table_data):,} runs")
 
     st.dataframe(
         page_data,

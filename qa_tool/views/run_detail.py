@@ -1,3 +1,5 @@
+"""QA dashboard module for run detail."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,7 +12,9 @@ try:
 except ModuleNotFoundError:
     from artifacts import run_display_name, run_option_match_index, show_run_artifacts
 
+
 def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
+    """Handle show run detail."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
@@ -30,11 +34,7 @@ def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
     selected_run = run_options.loc[selected_index]
 
     st.subheader("Results")
-    details = (
-        selected_run.to_frame(name="value")
-        .reset_index()
-        .rename(columns={"index": "field"})
-    )
+    details = selected_run.to_frame(name="value").reset_index().rename(columns={"index": "field"})
     st.dataframe(details, use_container_width=True, hide_index=True)
 
     show_run_artifacts(selected_run, settings["database"].get("artifact_root", ""))

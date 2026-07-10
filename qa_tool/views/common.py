@@ -1,3 +1,5 @@
+"""QA dashboard module for common."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,11 +13,13 @@ try:
 except ModuleNotFoundError:
     from styling import styled_comparison_table
 
+
 def aggregate_runs(
     runs: pd.DataFrame,
     group_columns: list[str],
     metrics: list[str],
 ) -> pd.DataFrame:
+    """Handle aggregate runs."""
     return (
         runs.groupby(group_columns, as_index=False)
         .agg(
@@ -27,14 +31,14 @@ def aggregate_runs(
         .sort_values(group_columns)
     )
 
+
 def version_sort_key(version: str) -> tuple[int, ...]:
-    return tuple(
-        int(part)
-        for part in str(version).removeprefix("v").split(".")
-        if part.isdigit()
-    )
+    """Handle version sort key."""
+    return tuple(int(part) for part in str(version).removeprefix("v").split(".") if part.isdigit())
+
 
 def empirical_cdf(values: pd.Series) -> pd.DataFrame:
+    """Handle empirical cdf."""
     sorted_values = values.sort_values(ignore_index=True)
     return pd.DataFrame(
         {
@@ -43,11 +47,13 @@ def empirical_cdf(values: pd.Series) -> pd.DataFrame:
         }
     )
 
+
 def model_mean_cdf_data(
     runs: pd.DataFrame,
     metric: str,
     label: str | None = None,
 ) -> pd.DataFrame:
+    """Handle model mean cdf data."""
     model_values = (
         runs.groupby("model", as_index=False)
         .agg(
@@ -64,6 +70,7 @@ def model_mean_cdf_data(
         model_values["curve"] = label
     return model_values
 
+
 def show_comparison_cdf_plot(
     null_runs: pd.DataFrame,
     test_runs: pd.DataFrame,
@@ -75,6 +82,7 @@ def show_comparison_cdf_plot(
     settings: dict[str, Any],
     color_scheme: str,
 ) -> dict[str, pd.DataFrame]:
+    """Handle show comparison cdf plot."""
     st.subheader("Cumulative Distribution")
     selected_metric = st.selectbox(
         "CDF comparison metric",
@@ -144,7 +152,7 @@ def show_comparison_cdf_plot(
     fig.update_traces(textposition="top center")
     fig.update_layout(
         height=plot_height,
-        margin=dict(l=10, r=10, t=36, b=10),
+        margin={"l": 10, "r": 10, "t": 36, "b": 10},
         xaxis_title=selected_metric,
         yaxis_title="Cumulative probability",
         yaxis_range=[0, 1.02],

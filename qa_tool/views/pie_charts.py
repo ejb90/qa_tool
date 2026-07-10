@@ -1,3 +1,5 @@
+"""QA dashboard module for pie charts."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -10,6 +12,7 @@ def show_pie_charts(
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show pie charts."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
@@ -23,17 +26,13 @@ def show_pie_charts(
 
     if value_choice == "run_count":
         pie_data = (
-            filtered.groupby(slice_by, as_index=False)
-            .agg(value=("uid", "count"))
-            .sort_values("value", ascending=False)
+            filtered.groupby(slice_by, as_index=False).agg(value=("uid", "count")).sort_values("value", ascending=False)
         )
         value_label = "run_count"
     else:
         metric = value_choice.removeprefix("sum_")
         pie_data = (
-            filtered.groupby(slice_by, as_index=False)
-            .agg(value=(metric, "sum"))
-            .sort_values("value", ascending=False)
+            filtered.groupby(slice_by, as_index=False).agg(value=(metric, "sum")).sort_values("value", ascending=False)
         )
         value_label = value_choice
 
@@ -45,7 +44,7 @@ def show_pie_charts(
         title=f"{value_label} by {slice_by}",
     )
     fig.update_traces(textposition="inside", textinfo="percent+label")
-    fig.update_layout(height=plot_height, margin=dict(l=10, r=10, t=44, b=10))
+    fig.update_layout(height=plot_height, margin={"l": 10, "r": 10, "t": 44, "b": 10})
     st.plotly_chart(fig, use_container_width=True)
 
     st.dataframe(

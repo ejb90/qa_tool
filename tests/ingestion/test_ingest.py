@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import runpy
 import sys
+from pathlib import Path
 
 import duckdb
 import pytest
@@ -54,10 +54,7 @@ def test_ingest_creates_runs_and_summary_tables(tmp_path: Path) -> None:
     assert database_path.stat().st_size > 0
 
     with duckdb.connect(str(database_path), read_only=True) as database:
-        run_columns = {
-            column[0]
-            for column in database.execute("DESCRIBE runs").fetchall()
-        }
+        run_columns = {column[0] for column in database.execute("DESCRIBE runs").fetchall()}
         assert run_columns == {
             "uid",
             "model",
@@ -108,17 +105,14 @@ def test_ingest_appends_new_columns_and_refreshes_summary(tmp_path: Path) -> Non
     result = ingest_run(second_artifact, second_artifact / "metadata.json", settings)
 
     with duckdb.connect(result["database"], read_only=True) as database:
-        run_columns = [
-            column[0]
-            for column in database.execute("DESCRIBE runs").fetchall()
-        ]
+        run_columns = [column[0] for column in database.execute("DESCRIBE runs").fetchall()]
         assert "new_metric" in run_columns
+        assert database.execute("SELECT uid, new_metric FROM runs ORDER BY uid").fetchall() == [
+            ("run-1", None),
+            ("run-2", 7.0),
+        ]
         assert database.execute(
-            "SELECT uid, new_metric FROM runs ORDER BY uid"
-        ).fetchall() == [("run-1", None), ("run-2", 7.0)]
-        assert database.execute(
-            "SELECT run_count, model_count, version_count, mean_score, mean_new_metric "
-            "FROM run_summary"
+            "SELECT run_count, model_count, version_count, mean_score, mean_new_metric FROM run_summary"
         ).fetchone() == (2, 2, 1, 2.5, 7.0)
 
 
@@ -160,10 +154,7 @@ def test_toml_settings_select_and_rename_json_keys(tmp_path: Path) -> None:
     result = ingest_run(artifact_dir, artifact_dir / "metadata.json", load_settings(settings_path))
 
     with duckdb.connect(result["database"], read_only=True) as database:
-        run_columns = {
-            column[0]
-            for column in database.execute("DESCRIBE runs").fetchall()
-        }
+        run_columns = {column[0] for column in database.execute("DESCRIBE runs").fetchall()}
         assert run_columns == {"uid", "model", "score", "artifact"}
         assert database.execute("SELECT uid, model, score FROM runs").fetchone() == (
             "run-3",
@@ -197,14 +188,8 @@ def test_exclude_rules_and_invalid_summary_columns(tmp_path: Path) -> None:
     result = ingest_run(artifact_dir, artifact_dir / "metadata.json", settings)
 
     with duckdb.connect(result["database"], read_only=True) as database:
-        run_columns = {
-            column[0]
-            for column in database.execute("DESCRIBE runs").fetchall()
-        }
-        summary_columns = {
-            column[0]
-            for column in database.execute("DESCRIBE run_summary").fetchall()
-        }
+        run_columns = {column[0] for column in database.execute("DESCRIBE runs").fetchall()}
+        summary_columns = {column[0] for column in database.execute("DESCRIBE run_summary").fetchall()}
         assert "secret" not in run_columns
         assert summary_columns == {"refreshed_at", "run_count", "model_count", "mean_score"}
 
@@ -273,3 +258,37 @@ def test_module_cli_uses_default_metadata_location(
     assert "Ingested" in capsys.readouterr().out
     with duckdb.connect(str(database_path), read_only=True) as database:
         assert database.execute("SELECT uid, score FROM runs").fetchone() == ("run-6", 6.0)
+
+
+def test_cli_database_option_overrides_toml_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI database option takes precedence over the TOML destination."""
+    artifact_dir = write_artifact(tmp_path, "override-run", {"uid": "run-7"})
+    configured_database = tmp_path / "configured.duckdb"
+    override_database = tmp_path / "override.duckdb"
+    settings_path = tmp_path / "override.toml"
+    settings_path.write_text(
+        "\n".join(["[database]", f'path = "{configured_database}"']),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qa-tool-ingest",
+            str(artifact_dir),
+            "--settings",
+            str(settings_path),
+            "--database",
+            str(override_database),
+        ],
+    )
+
+    runpy.run_module("qa_tool_ingest.__main__", run_name="__main__")
+
+    assert override_database.is_file()
+    assert not configured_database.exists()
+    with duckdb.connect(str(override_database), read_only=True) as database:
+        assert database.execute("SELECT uid FROM runs").fetchone() == ("run-7",)

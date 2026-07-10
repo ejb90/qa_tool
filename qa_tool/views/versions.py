@@ -1,3 +1,5 @@
+"""QA dashboard module for versions."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,21 +17,25 @@ except ModuleNotFoundError:
     from summaries import modified_filtered_runs, show_tab_summary
     from views.common import aggregate_runs, model_mean_cdf_data, version_sort_key
 
+
 def show_versions_tab(
     filtered: pd.DataFrame,
     settings: dict[str, Any],
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show versions tab."""
     tab_filtered = modified_filtered_runs(filtered, "versions")
     show_tab_summary(tab_filtered, settings, "versions", metrics)
     show_version_tables(tab_filtered, metrics, plot_height)
+
 
 def show_version_tables(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
 ) -> None:
+    """Handle show version tables."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return
@@ -57,11 +63,13 @@ def show_version_tables(
         "versions_download",
     )
 
+
 def show_version_plots(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
 ) -> dict[str, pd.DataFrame]:
+    """Handle show version plots."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return {}
@@ -97,7 +105,7 @@ def show_version_plots(
     )
     fig.update_layout(
         height=plot_height,
-        margin=dict(l=10, r=10, t=36, b=10),
+        margin={"l": 10, "r": 10, "t": 36, "b": 10},
         title=f"{selected_metric} by version",
         xaxis_title="Version",
         yaxis_title=selected_metric,
@@ -105,11 +113,13 @@ def show_version_plots(
     st.plotly_chart(fig, use_container_width=True)
     return {f"plot_version_metric_{selected_metric}": plot_data}
 
+
 def show_version_cdf_plot(
     filtered: pd.DataFrame,
     metrics: list[str],
     plot_height: int,
 ) -> dict[str, pd.DataFrame]:
+    """Handle show version cdf plot."""
     if filtered.empty:
         st.info("No runs match the current filters.")
         return {}
@@ -164,7 +174,7 @@ def show_version_cdf_plot(
     fig.update_traces(textposition="top center")
     fig.update_layout(
         height=plot_height,
-        margin=dict(l=10, r=10, t=36, b=10),
+        margin={"l": 10, "r": 10, "t": 36, "b": 10},
         xaxis_title=selected_metric,
         yaxis_title="Cumulative probability",
         yaxis_range=[0, 1.02],
