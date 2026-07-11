@@ -1,0 +1,45 @@
+name: Tag
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    env:
+      TAG_PAT: ${{ secrets.GH_PAT_PUSH }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(python -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push missing release tag
+        if: ${{ env.TAG_PAT != '' }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists."
+            exit 0
+          fi
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git remote set-url origin "https://x-access-token:${TAG_PAT}@github.com/${GITHUB_REPOSITORY}.git"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"

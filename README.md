@@ -1,12 +1,21 @@
 # QA Tool
 
-Interactive Streamlit dashboard for browsing and comparing QA/regression runs.
+![tests](https://github.com/ejb90/qa_tool/actions/workflows/test.yml/badge.svg)
+[![License](https://img.shields.io/github/license/ejb90/qa_tool)](LICENSE.md)
+![Ruff](https://img.shields.io/badge/code%20style-ruff-261230)
+[![Documentation](https://readthedocs.org/projects/qa-tool/badge/?version=latest)](https://qa-tool.readthedocs.io/en/latest/?badge=latest)
+[![PyPI](https://img.shields.io/pypi/v/qa-tool)](https://pypi.org/project/qa-tool/)
+[![Python versions](https://img.shields.io/pypi/pyversions/qa-tool)](https://pypi.org/project/qa-tool/)
+
+DuckDB-backed web and command-line tools for browsing and comparing QA/regression runs.
 
 [Live Streamlit app](https://apptool-qt5hejbcu4yzxgxsndhvem.streamlit.app/)
 
+For setup, ingestion, configuration, UI, CLI, export, and development guides, see the [MkDocs documentation](docs/index.md).
+
 ## What It Does
 
-The app reads run metadata from a DuckDB or SQLite database and links each run back to an artifact directory containing detailed output files, including Parquet time-series data.
+The app reads run metadata from DuckDB and links each run back to an artifact directory containing detailed output files, including Parquet time-series data.
 
 Current views include:
 
@@ -18,12 +27,14 @@ Current views include:
 - run detail pages with Parquet time-series plots
 - pie charts and summary tables
 
-Comparison pages include aggregate tables, CDF plots, bar charts, coloured delta cells, and downloads of the calculated comparison data.
+Comparison pages include aggregate tables with standard deviations and percentage differences, CDF plots, bar charts, coloured difference cells, and downloads of the calculated comparison data.
 
 ## Project Layout
 
 ```text
-qa_tool/
+qa_tool_core/      # Shared DuckDB queries, comparisons, and Plotly figure builders
+qa_tool_webapp/    # Streamlit user interface
+qa_tool_cli/       # Rich terminal user interface
   app.py                  Streamlit app
   default_settings.toml   Packaged default settings
   load_dummy_data.py      Load store/*/metadata.json into SQLite and DuckDB
@@ -52,10 +63,28 @@ uv sync
 ## Run Locally
 
 ```bash
-uv run streamlit run qa_tool/app.py
+uv run streamlit run qa_tool_webapp/app.py
 ```
 
-By default the app uses `qa_tool/default_settings.toml`, which points at:
+## Install from PyPI
+
+Install the command-line and ingestion tools from PyPI:
+
+```bash
+pip install qa-tool
+# or
+uv tool install qa-tool
+```
+
+The web interface is included in the package. Start it with:
+
+```bash
+qa_tool_webapp
+```
+
+For the complete setup and configuration guide, see the [Read the Docs documentation](https://qa-tool.readthedocs.io/).
+
+By default the app uses `qa_tool_webapp/default_settings.toml`, which points at:
 
 ```toml
 [database]
@@ -66,6 +95,35 @@ artifact_root = "./store"
 ## Rebuild The Database
 
 The app uses DuckDB only. Ingest each run artifact with `qa_tool_ingest` to append its metadata and refresh the summary table.
+
+## Command-line interface
+
+`qa_tool` reads the same settings and DuckDB database as the web application. By default it generates tables and plots for every numeric variable, writing HTML and PNG plots plus CSV and Parquet raw-data and displayed-table files to `qa_tool_output/` (or `--output-dir`). Use `--metric` to select one variable, `--database` to override the configured database, and `--formats` to select artifacts, for example `--formats png csv` or `--formats html parquet`.
+
+```bash
+# Tables by version and a plot for each selected model
+uv run qa_tool model --models h2 co2 --metric density
+
+# Tables by model, a multi-model version plot, and an empirical CDF
+uv run qa_tool version --versions v1.0.0 v2.0.0 --metric density --cdf-version v2.0.0
+
+# Compare two versions across their shared models
+uv run qa_tool compare versions --base-version v1.0.0 --test-version v2.0.0 --metric density
+
+# Compare aggregate values for two model selections
+uv run qa_tool compare models --base-models h2 --test-models co2 --metric density
+
+# Compare arbitrary collections using a database column and matching values
+uv run qa_tool compare collections --field git_branch --base main --test release --metric density
+
+# Donut charts by model or version; omit --metric for run counts and every numeric metric
+uv run qa_tool pie --slice-by model
+uv run qa_tool pie --slice-by version --metric density
+```
+
+`compare collections` supports `--match exact`, `starts-with`, `contains`, `regex`, and `non-empty`. For a datetime field, give a start and end value to `--base` and `--test`.
+
+PNG generation uses Kaleido and a local Chrome-compatible browser. If that optional renderer is unavailable, choose `--formats html csv parquet` to keep all non-image artifacts.
 
 Each metadata file is expected to contain the run-level fields used by the app, including identifiers, model/version information, scalar metrics, and the artifact path.
 
@@ -108,7 +166,7 @@ For Parquet plotting, files with a time-like column such as `time`, `Time`, or `
 
 ## Settings
 
-The main settings live in `qa_tool/default_settings.toml`.
+The main settings live in `qa_tool_webapp/default_settings.toml`.
 
 Useful sections:
 
@@ -117,7 +175,7 @@ Useful sections:
 - `[tables.all_runs].columns`: choose and order All Runs table columns
 - `[summaries]`: configure summary metrics per tab
 - `[plots]`: plot sizing
-- `[comparison.color_bounds]`: optional fixed colour limits for comparison deltas
+- `[comparison.color_bounds]`: optional fixed colour limits, in percentage points, for comparison differences
 
 Example colour bounds:
 
@@ -144,7 +202,7 @@ Generated results include CSV/Markdown summaries and an HTML performance plot.
 Compile the main modules:
 
 ```bash
-uv run python -m py_compile qa_tool/app.py qa_tool/settings.py qa_tool/compare.py qa_tool/exports.py qa_tool/styling.py
+uv run python -m py_compile qa_tool_webapp/app.py qa_tool_webapp/settings.py qa_tool_webapp/compare.py qa_tool_webapp/exports.py qa_tool_webapp/styling.py
 ```
 
 Run tests:

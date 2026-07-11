@@ -168,6 +168,11 @@ venv.bak/
 # mkdocs documentation
 /site
 
+# Local QA data and generated reports
+qa_tool_output/
+*.duckdb
+.DS_Store
+
 # mypy
 .mypy_cache/
 .dmypy.json

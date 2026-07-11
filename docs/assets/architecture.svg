@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-labelledby="title desc">
+  <title id="title">QA Tool architecture</title>
+  <desc id="desc">Artifact metadata is ingested into DuckDB and then consumed by both the web application and command-line interface through a shared core package.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+    .title { font-size: 21px; font-weight: 700; }
+    .label { font-size: 16px; font-weight: 650; }
+    .detail { font-size: 13px; fill: #4a5875; }
+    .arrow { stroke: #66799f; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#66799f"/></marker></defs>
+  <rect width="1200" height="470" rx="22" fill="#f6f8fc"/>
+  <text x="60" y="58" class="title">One DuckDB database, two user interfaces</text>
+  <rect x="60" y="130" width="230" height="175" rx="16" fill="#e7f1ff" stroke="#5593db" stroke-width="2"/>
+  <text x="90" y="176" class="label">Artifact directory</text>
+  <text x="90" y="210" class="detail">metadata.json</text>
+  <text x="90" y="236" class="detail">Parquet time series</text>
+  <text x="90" y="262" class="detail">other run outputs</text>
+  <rect x="385" y="130" width="220" height="175" rx="16" fill="#efe9ff" stroke="#8a71d2" stroke-width="2"/>
+  <text x="437" y="176" class="label">qa_tool_ingest</text>
+  <text x="421" y="211" class="detail">append metadata row</text>
+  <text x="421" y="237" class="detail">evolve schema</text>
+  <text x="421" y="263" class="detail">refresh summary</text>
+  <rect x="700" y="105" width="210" height="225" rx="16" fill="#e6f7ef" stroke="#4eae79" stroke-width="2"/>
+  <text x="760" y="154" class="label">runs.duckdb</text>
+  <text x="742" y="191" class="detail">runs</text>
+  <text x="742" y="217" class="detail">run_summary</text>
+  <text x="742" y="243" class="detail">flexible columns</text>
+  <text x="742" y="269" class="detail">artifact links</text>
+  <rect x="975" y="70" width="165" height="120" rx="16" fill="#fff1df" stroke="#dc9844" stroke-width="2"/>
+  <text x="1006" y="116" class="label">Web app</text>
+  <text x="1000" y="146" class="detail">Streamlit tabs</text>
+  <rect x="975" y="250" width="165" height="120" rx="16" fill="#fff1df" stroke="#dc9844" stroke-width="2"/>
+  <text x="1012" y="296" class="label">CLI</text>
+  <text x="995" y="326" class="detail">Rich + exports</text>
+  <path d="M290 218 H385" class="arrow"/>
+  <path d="M605 218 H700" class="arrow"/>
+  <path d="M910 190 H975" class="arrow"/>
+  <path d="M910 265 H975" class="arrow"/>
+  <text x="745" y="388" class="detail">qa_tool_core supplies shared queries, comparisons, and figures</text>
+</svg>

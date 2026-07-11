@@ -1,5 +1,5 @@
 [project]
-name = "qa_tool"
+name = "qa-tool"
 version = "0.1.0"
 description = "Simple QA/regression web UI from database info."
 readme = "README.md"
@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "duckdb>=1.4.3",
+    "kaleido>=1.0.0",
     "marimo[sql]>=0.23.13",
     "plotly>=6.8.0",
     "polars>=1.42.1",
@@ -35,31 +36,47 @@ dependencies = [
     "streamlit>=1.58.0",
 ]
 
+[project.scripts]
+qa_tool = "qa_tool_cli.cli:main"
+qa_tool_ingest = "qa_tool_ingest.cli:main"
+qa_tool_webapp = "qa_tool_webapp.launch:main"
+
 [project.optional-dependencies]
 docs = [
-    "mkdocs-material>=9.5",
+    "mkdocs-material>=9.5,<9.7",
+    "mkdocstrings[python]>=0.29",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+exclude = [
+    "/qa_tool_output/**",
+    "/results.duckdb",
+    "/runs.duckdb",
+    "**/.DS_Store",
+]
+
 [project.urls]
 Homepage = "https://github.com/ejb90/qa_tool"
 Repository = "https://github.com/ejb90/qa_tool"
+Documentation = "https://qa-tool.readthedocs.io/"
+Changelog = "https://github.com/ejb90/qa_tool/releases"
 
 [dependency-groups]
 dev = [
-    "mkdocs-material>=9.5",
+    "mkdocs-material>=9.5,<9.7",
+    "mkdocstrings[python]>=0.29",
     "pytest>=8.0",
     "pytest-cov>=7.0",
-    "qa-tool",
     "ruff>=0.14",
     "twine>=6.0",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["qa_tool", "qa_tool_ingest"]
+packages = ["qa_tool_core", "qa_tool_webapp", "qa_tool_ingest", "qa_tool_cli"]
 
 [tool.ruff]
 # Target modern Python
@@ -123,7 +140,7 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--tb=short",
-    "--cov=qa_tool",
+    "--cov=qa_tool_webapp",
     "--cov-report=xml",
     "--cov-report=term",
     "--cov-report=html",
