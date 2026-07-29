@@ -46,6 +46,7 @@ nav:
   - Data model: database.md
   - Ingestion: ingestion.md
   - Web application: web-app.md
+  - Deployment: deployment.md
   - Command line: cli.md
   - Python API:
       - Overview: api/index.md

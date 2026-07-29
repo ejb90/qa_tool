@@ -3,50 +3,43 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 import streamlit as st
 
-try:
-    from qa_tool_webapp.data import (
-        filter_runs,
-        load_run_summary,
-        load_runs,
-        metric_columns,
-        show_downloads,
-    )
-    from qa_tool_webapp.settings import load_settings
-    from qa_tool_webapp.summaries import (
-        show_intro,
-        show_navigation_cards,
-        show_stored_summary,
-        show_tab_summary,
-    )
-    from qa_tool_webapp.views import (
-        show_all_runs,
-        show_compare_collection,
-        show_compare_run,
-        show_models_tab,
-        show_pie_charts,
-        show_run_detail,
-        show_version_comparison,
-        show_versions_tab,
-    )
-except ModuleNotFoundError:
-    from data import filter_runs, load_run_summary, load_runs, metric_columns, show_downloads
-    from settings import load_settings
-    from summaries import show_intro, show_navigation_cards, show_stored_summary, show_tab_summary
-    from views import (
-        show_all_runs,
-        show_compare_collection,
-        show_compare_run,
-        show_models_tab,
-        show_pie_charts,
-        show_run_detail,
-        show_version_comparison,
-        show_versions_tab,
-    )
+# Streamlit executes an app file with its directory on sys.path.  Add the
+# repository root too, so the sibling qa_tool_core package is importable when
+# the app is deployed directly from this repository.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from qa_tool_webapp.data import (  # noqa: E402
+    filter_runs,
+    load_run_summary,
+    load_runs,
+    metric_columns,
+    show_downloads,
+)
+from qa_tool_webapp.settings import load_settings  # noqa: E402
+from qa_tool_webapp.summaries import (  # noqa: E402
+    show_intro,
+    show_navigation_cards,
+    show_stored_summary,
+    show_tab_summary,
+)
+from qa_tool_webapp.views import (  # noqa: E402
+    show_all_runs,
+    show_compare_collection,
+    show_compare_run,
+    show_models_tab,
+    show_pie_charts,
+    show_run_detail,
+    show_version_comparison,
+    show_versions_tab,
+)
 
 
 def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:

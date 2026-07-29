@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+qa_tool_output/
+runs.duckdb
+store/
+.DS_Store
+old/ 
+dist/
+build/
+test/
+.idea/

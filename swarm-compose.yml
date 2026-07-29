@@ -1,0 +1,34 @@
+# Deploy from a Docker Swarm manager:
+# docker stack deploy --with-registry-auth -c swarm-compose.yml qa-tool
+#
+# Replace the image name and the two source paths with your Harbor repository
+# and the paths provisioned by your platform team.
+services:
+  qa-tool:
+    image: harbor.example.com/qa/qa-tool:0.1.0
+    ports:
+      - target: 8501
+        published: 8501
+        protocol: tcp
+        mode: ingress
+    volumes:
+      # The dashboard opens the database in read-only mode. Run ingestion as a
+      # separate, controlled job with a read-write database mount.
+      - type: bind
+        source: /srv/qa-tool/runs.duckdb
+        target: /app/runs.duckdb
+        read_only: true
+      - type: bind
+        source: /srv/qa-tool/store
+        target: /app/store
+        read_only: true
+    deploy:
+      # Keep a single replica while this application uses file-based DuckDB.
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        # Label the Swarm node that has the paths above, for example:
+        # docker node update --label-add qa_data=true <node-name>
+        constraints:
+          - node.labels.qa_data == true

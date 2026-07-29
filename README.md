@@ -9,7 +9,7 @@
 
 DuckDB-backed web and command-line tools for browsing and comparing QA/regression runs.
 
-[Live Streamlit app](https://apptool-qt5hejbcu4yzxgxsndhvem.streamlit.app/)
+[Live Streamlit app](https://apptool-mqfugq9a6cwqqje6zklh2o.streamlit.app/)
 
 For setup, ingestion, configuration, UI, CLI, export, and development guides, see the [MkDocs documentation](docs/index.md).
 
@@ -65,6 +65,47 @@ uv sync
 ```bash
 uv run streamlit run qa_tool_webapp/app.py
 ```
+
+## Run with Docker
+
+The repository includes a `Dockerfile` that packages the web application. The
+database and artifacts are deliberately excluded from the image; mount them at
+runtime so data can be updated independently of the application image.
+
+```bash
+docker build -t qa-tool .
+docker run --rm -p 8501:8501 \
+  -v "$PWD/runs.duckdb:/app/runs.duckdb" \
+  -v "$PWD/store:/app/store:ro" \
+  qa-tool
+```
+
+Open <http://localhost:8501> after the container starts. The DuckDB database
+is mounted read/write for ingestion; artifact files are mounted read-only
+because the dashboard only reads them.
+
+The default base image is `ghcr.io/astral-sh/uv:python3.13-bookworm-slim`. To
+build from a Harbor-mirrored copy instead, supply its full image name:
+
+```bash
+docker build \
+  --build-arg BASE_IMAGE=harbor.example.com/base/uv:python3.13-bookworm-slim \
+  -t qa-tool .
+```
+
+Replace `harbor.example.com/base/uv:python3.13-bookworm-slim` with your
+organization's Harbor repository and tag.
+
+For Docker Swarm, adapt [swarm-compose.yml](swarm-compose.yml) with your
+Harbor image name and administrator-provisioned data paths, then deploy it from
+a Swarm manager:
+
+```bash
+docker stack deploy --with-registry-auth -c swarm-compose.yml qa-tool
+```
+
+See [the deployment workflow](docs/deployment.md) for safely refreshing the
+dashboard from object-store snapshots when new runs arrive every few minutes.
 
 ## Install from PyPI
 

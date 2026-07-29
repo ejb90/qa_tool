@@ -6,6 +6,36 @@ Run the dashboard with:
 uv run streamlit run qa_tool_webapp/app.py
 ```
 
+## Run in Docker
+
+Build the image from the repository root, then mount the DuckDB database and
+artifact directory into the paths configured by the default settings:
+
+```bash
+docker build -t qa-tool .
+docker run --rm -p 8501:8501 \
+  -v "$PWD/runs.duckdb:/app/runs.duckdb" \
+  -v "$PWD/store:/app/store:ro" \
+  qa-tool
+```
+
+The dashboard is available at <http://localhost:8501>. `runs.duckdb` is
+mounted read/write so it can also be updated by ingestion commands; `store` is
+mounted read-only because the dashboard only reads artifacts. The Docker image
+does not contain run data.
+
+The Dockerfile defaults to `ghcr.io/astral-sh/uv:python3.13-bookworm-slim`.
+Organizations using Harbor can point the build at an internal mirrored image:
+
+```bash
+docker build \
+  --build-arg BASE_IMAGE=harbor.example.com/base/uv:python3.13-bookworm-slim \
+  -t qa-tool .
+```
+
+Use the Harbor repository and tag supplied by your organization in place of
+the example path.
+
 ![Overview splash page with stored summary quantities and navigation cards](assets/webapp-overview.png){ loading=lazy }
 
 Pass a settings override as usual:
