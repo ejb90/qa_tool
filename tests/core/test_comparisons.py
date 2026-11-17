@@ -7,7 +7,7 @@ import math
 import pandas as pd
 import pytest
 
-from qa_tool_core.comparisons import build_collection_comparison, build_model_comparison
+from qa_tool.core.comparisons import build_collection_comparison, build_model_comparison
 
 
 def test_collection_comparison_includes_standard_deviations_and_percent_difference() -> None:

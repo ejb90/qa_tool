@@ -8,10 +8,10 @@ import duckdb
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from qa_tool_webapp.data import load_run_summary, load_runs
-from qa_tool_webapp.settings import load_settings
+from qa_tool.webapp.data import load_run_summary, load_runs
+from qa_tool.webapp.settings import load_settings
 
-APP_PATH = Path(__file__).resolve().parents[2] / "qa_tool_webapp" / "app.py"
+APP_PATH = Path(__file__).resolve().parents[2] / "qa_tool" / "webapp" / "app.py"
 
 
 def write_settings(tmp_path: Path, database_path: Path) -> Path:

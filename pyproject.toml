@@ -35,10 +35,7 @@ dependencies = [
 ]
 
 [project.scripts]
-qa-tool = "qa_tool_cli.cli:cli"
-qa_tool = "qa_tool_cli.cli:cli"
-qa_tool_ingest = "qa_tool_cli.cli:ingest_main"
-qa_tool_webapp = "qa_tool_cli.cli:webapp_main"
+qa-tool = "qa_tool.cli.cli:cli"
 
 [project.optional-dependencies]
 docs = [
@@ -81,7 +78,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["qa_tool_core", "qa_tool_webapp", "qa_tool_ingest", "qa_tool_cli"]
+packages = ["qa_tool"]
 
 [tool.ruff]
 # Target modern Python
@@ -146,9 +143,9 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--tb=short",
-    "--cov=qa_tool_core",
-    "--cov=qa_tool_cli",
-    "--cov=qa_tool_ingest",
+    "--cov=qa_tool.core",
+    "--cov=qa_tool.cli",
+    "--cov=qa_tool.ingest",
     "--cov-report=xml",
     "--cov-report=term",
     "--cov-report=html",

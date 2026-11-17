@@ -8,11 +8,11 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from qa_tool_core.queries import aggregate_runs, model_mean_cdf_data, version_sort_key
+from qa_tool.core.queries import aggregate_runs, model_mean_cdf_data, version_sort_key
 
 try:
-    from qa_tool_webapp.exports import show_export_download
-    from qa_tool_webapp.summaries import modified_filtered_runs, show_tab_summary
+    from qa_tool.webapp.exports import show_export_download
+    from qa_tool.webapp.summaries import modified_filtered_runs, show_tab_summary
 except ModuleNotFoundError:
     from exports import show_export_download
     from summaries import modified_filtered_runs, show_tab_summary

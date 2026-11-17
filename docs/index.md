@@ -19,7 +19,7 @@ QA Tool is a small system for collecting, browsing, comparing, and exporting qua
 - **One DuckDB database.** `runs` contains one row per run. `run_summary` contains precomputed overview values.
 - **Flexible metadata.** The required source fields are `uid`, `date`, and configured model/version columns. New JSON keys become new DuckDB columns when ingested.
 - **Artifact-aware.** The `artifact` column points to the directory that holds detailed outputs such as Parquet time series.
-- **Shared calculations.** `qa_tool_core` owns the database queries, selections, comparisons, and Plotly figure builders used by both interfaces.
+- **Shared calculations.** `qa_tool.core` owns the database queries, selections, comparisons, and Plotly figure builders used by both interfaces.
 
 ## Typical workflow
 

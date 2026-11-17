@@ -4,7 +4,7 @@ QA Tool uses TOML overrides for the dashboard/analysis interfaces and a separate
 
 ## Dashboard and CLI settings
 
-The packaged defaults live in `qa_tool_webapp/default_settings.toml`. Supply an override in one of these ways:
+The packaged defaults live in `qa_tool/webapp/default_settings.toml`. Supply an override in one of these ways:
 
 === "Web-app command"
 
@@ -76,7 +76,7 @@ Summary aggregations support `mean`, `min`, and `max`. Unknown metrics are ignor
 
 ## Ingestion settings
 
-Ingestion starts from `qa_tool_ingest/default_settings.toml` and accepts an override with `--settings`:
+Ingestion starts from `qa_tool/ingest/default_settings.toml` and accepts an override with `--settings`:
 
 ```bash
 qa-tool ingest store/my-run --settings ingest.toml

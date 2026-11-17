@@ -16,13 +16,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from qa_tool_cli import commands
-from qa_tool_cli.rendering import OutputFormat, require_png_support
-from qa_tool_core.queries import load_runs, metric_columns
-from qa_tool_core.settings import load_settings
-from qa_tool_ingest.core import ingest_run
-from qa_tool_ingest.settings import load_settings as load_ingest_settings
-from qa_tool_webapp.launch import launch_webapp
+from qa_tool.cli import commands
+from qa_tool.cli.rendering import OutputFormat, require_png_support
+from qa_tool.core.queries import load_runs, metric_columns
+from qa_tool.core.settings import load_settings
+from qa_tool.ingest.core import ingest_run
+from qa_tool.ingest.settings import load_settings as load_ingest_settings
+from qa_tool.webapp.launch import launch_webapp
 
 DEFAULT_FORMATS = ("html", "csv", "parquet")
 OUTPUT_FORMAT = click.Choice(["html", "png", "csv", "parquet"], case_sensitive=False)
@@ -88,7 +88,7 @@ def load_command_runs(
     settings_path: Path | None,
 ) -> tuple[pd.DataFrame, list[str], int]:
     """Load configured, normalized runs and the plot height."""
-    settings_text = files("qa_tool_webapp").joinpath("default_settings.toml").read_text(encoding="utf-8")
+    settings_text = files("qa_tool.webapp").joinpath("default_settings.toml").read_text(encoding="utf-8")
     settings = load_settings(tomllib.loads(settings_text), settings_path)
     database_settings = settings["database"]
     database_path = database or Path(database_settings["path"])
@@ -387,13 +387,3 @@ def main(argv: Sequence[str] | None = None) -> None:
     except click.exceptions.Exit as error:
         if error.exit_code:
             raise SystemExit(error.exit_code) from error
-
-
-def ingest_main() -> None:
-    """Route the legacy ingestion executable through ``qa-tool ingest``."""
-    main(["ingest", *sys.argv[1:]])
-
-
-def webapp_main() -> None:
-    """Route the legacy web-app executable through ``qa-tool webapp``."""
-    main(["webapp", *sys.argv[1:]])

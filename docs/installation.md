@@ -30,7 +30,7 @@ The installation provides one command tree:
 
 Verify the installation with `qa-tool --help`.
 
-The older `qa_tool`, `qa_tool_ingest`, and `qa_tool_webapp` executables remain as compatibility aliases, but new automation should use `qa-tool`.
+The installed executable is `qa-tool`. Ingestion, analysis, and the web application are exposed as subcommands such as `qa-tool ingest` and `qa-tool webapp`.
 
 ## Optional extras
 

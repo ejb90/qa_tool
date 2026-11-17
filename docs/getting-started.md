@@ -4,7 +4,14 @@ This guide creates a small DuckDB database from one run, opens the dashboard, an
 
 ## Prepare a run
 
-Create an artifact directory:
+When working from a repository checkout, you can use the included example
+directly:
+
+```bash
+qa-tool ingest examples/sample-run
+```
+
+Alternatively, create your own artifact directory with this layout:
 
 ```text
 store/

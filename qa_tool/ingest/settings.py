@@ -21,7 +21,7 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 def load_settings(path: str | Path | None = None) -> dict[str, Any]:
     """Load packaged defaults with an optional TOML override."""
-    defaults = tomllib.loads(files("qa_tool_ingest").joinpath("default_settings.toml").read_text(encoding="utf-8"))
+    defaults = tomllib.loads(files("qa_tool.ingest").joinpath("default_settings.toml").read_text(encoding="utf-8"))
     if path is None:
         return defaults
 

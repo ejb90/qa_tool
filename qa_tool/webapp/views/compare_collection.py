@@ -11,11 +11,11 @@ import plotly.express as px
 import streamlit as st
 
 try:
-    from qa_tool_webapp.compare import build_collection_comparison, build_collection_metric_deltas
-    from qa_tool_webapp.data import dataframe_to_csv
-    from qa_tool_webapp.exports import export_name
-    from qa_tool_webapp.styling import select_comparison_color_scheme, styled_comparison_table
-    from qa_tool_webapp.views.common import show_comparison_cdf_plot
+    from qa_tool.webapp.compare import build_collection_comparison, build_collection_metric_deltas
+    from qa_tool.webapp.data import dataframe_to_csv
+    from qa_tool.webapp.exports import export_name
+    from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
+    from qa_tool.webapp.views.common import show_comparison_cdf_plot
 except ModuleNotFoundError:
     from compare import build_collection_comparison, build_collection_metric_deltas
     from data import dataframe_to_csv

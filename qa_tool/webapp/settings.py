@@ -12,7 +12,7 @@ import streamlit as st
 
 SETTINGS_ENV_VAR = "QA_TOOL_SETTINGS"
 DEFAULT_SETTINGS_RESOURCE = "default_settings.toml"
-PACKAGE_NAME = __package__ or "qa_tool_webapp"
+PACKAGE_NAME = __package__ or "qa_tool.webapp"
 
 
 def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

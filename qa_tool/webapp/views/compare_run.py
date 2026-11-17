@@ -8,14 +8,14 @@ import pandas as pd
 import streamlit as st
 
 try:
-    from qa_tool_webapp.artifacts import (
+    from qa_tool.webapp.artifacts import (
         compare_run_parquet_pairs,
         run_display_name,
         run_option_match_index,
         show_compare_run_artifacts,
     )
-    from qa_tool_webapp.compare import build_run_scalar_comparison
-    from qa_tool_webapp.styling import select_comparison_color_scheme, styled_comparison_table
+    from qa_tool.webapp.compare import build_run_scalar_comparison
+    from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
 except ModuleNotFoundError:
     from artifacts import (
         compare_run_parquet_pairs,

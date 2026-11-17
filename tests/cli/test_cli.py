@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from qa_tool_cli.cli import main
+from qa_tool.cli.cli import main
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ def test_webapp_forwards_settings_and_streamlit_arguments(tmp_path: Path, monkey
         captured_arguments.extend(arguments)
         return 0
 
-    monkeypatch.setattr("qa_tool_cli.cli.launch_webapp", fake_launch)
+    monkeypatch.setattr("qa_tool.cli.cli.launch_webapp", fake_launch)
 
     main(["webapp", "--settings", str(settings_path), "--", "--server.port=8600"])
 
@@ -118,7 +118,7 @@ def test_png_request_reports_missing_optional_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An explicit PNG request fails early with installation instructions."""
-    monkeypatch.setattr("qa_tool_cli.rendering.find_spec", lambda _name: None)
+    monkeypatch.setattr("qa_tool.cli.rendering.find_spec", lambda _name: None)
 
     with pytest.raises(SystemExit, match="1"):
         main(

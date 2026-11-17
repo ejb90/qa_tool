@@ -1,0 +1,8 @@
+{
+  "uid": "sample-run-001",
+  "model": "h2",
+  "version": "v1.0.0",
+  "date": "2026-11-17T12:00:00Z",
+  "density": 1.41,
+  "runtime": 2.7
+}

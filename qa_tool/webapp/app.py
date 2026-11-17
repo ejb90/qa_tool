@@ -9,28 +9,28 @@ from pathlib import Path
 
 import streamlit as st
 
-# Streamlit executes an app file with its directory on sys.path.  Add the
-# repository root too, so the sibling qa_tool_core package is importable when
-# the app is deployed directly from this repository.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Streamlit executes an app file with its directory on sys.path. Add the
+# directory containing the qa_tool package too, so direct file execution works
+# both from a repository checkout and from an installed distribution.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from qa_tool_webapp.data import (  # noqa: E402
+from qa_tool.webapp.data import (  # noqa: E402
     filter_runs,
     load_run_summary,
     load_runs,
     metric_columns,
     show_downloads,
 )
-from qa_tool_webapp.settings import load_settings  # noqa: E402
-from qa_tool_webapp.summaries import (  # noqa: E402
+from qa_tool.webapp.settings import load_settings  # noqa: E402
+from qa_tool.webapp.summaries import (  # noqa: E402
     show_intro,
     show_navigation_cards,
     show_stored_summary,
     show_tab_summary,
 )
-from qa_tool_webapp.views import (  # noqa: E402
+from qa_tool.webapp.views import (  # noqa: E402
     show_all_runs,
     show_compare_collection,
     show_compare_run,

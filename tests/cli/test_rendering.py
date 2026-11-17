@@ -9,12 +9,12 @@ import pytest
 from plotly.graph_objects import Figure
 from pytest import MonkeyPatch
 
-from qa_tool_cli.rendering import require_png_support, write_plot
+from qa_tool.cli.rendering import require_png_support, write_plot
 
 
 def test_require_png_support_rejects_missing_optional_dependency(monkeypatch: MonkeyPatch) -> None:
     """An explicit PNG request explains how to install the optional dependencies."""
-    monkeypatch.setattr("qa_tool_cli.rendering.find_spec", lambda _name: None)
+    monkeypatch.setattr("qa_tool.cli.rendering.find_spec", lambda _name: None)
 
     with pytest.raises(ValueError, match=r"qa-tool\[png\]"):
         require_png_support(["png"])
@@ -23,7 +23,7 @@ def test_require_png_support_rejects_missing_optional_dependency(monkeypatch: Mo
 def test_require_png_support_ignores_non_png_formats(monkeypatch: MonkeyPatch) -> None:
     """Standard formats do not inspect or require the optional PNG backend."""
     monkeypatch.setattr(
-        "qa_tool_cli.rendering.find_spec",
+        "qa_tool.cli.rendering.find_spec",
         lambda _name: pytest.fail("Kaleido should not be inspected"),
     )
 

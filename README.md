@@ -36,7 +36,13 @@ See the [installation guide](https://qa-tool.readthedocs.io/en/latest/installati
 
 ## Quick start
 
-Create `store/my-run/metadata.json`:
+The repository includes a minimal input in `examples/sample-run`. Ingest it directly:
+
+```bash
+qa-tool ingest examples/sample-run
+```
+
+Or create your own `store/my-run/metadata.json`:
 
 ```json
 {
@@ -59,6 +65,8 @@ Open the dashboard:
 ```bash
 qa-tool webapp
 ```
+
+Open the Streamlit dashboard at <http://localhost:8501>.
 
 Or create a terminal report and export files:
 

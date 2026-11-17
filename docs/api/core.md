@@ -2,20 +2,20 @@
 
 ## Package exports
 
-::: qa_tool_core
+::: qa_tool.core
 
 ## Queries and selections
 
-::: qa_tool_core.queries
+::: qa_tool.core.queries
 
 ## Comparisons
 
-::: qa_tool_core.comparisons
+::: qa_tool.core.comparisons
 
 ## Plot builders
 
-::: qa_tool_core.plots
+::: qa_tool.core.plots
 
 ## Settings helpers
 
-::: qa_tool_core.settings
+::: qa_tool.core.settings

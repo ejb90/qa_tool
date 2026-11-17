@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 try:
-    from qa_tool_webapp.artifacts import run_display_name, run_option_match_index, show_run_artifacts
+    from qa_tool.webapp.artifacts import run_display_name, run_option_match_index, show_run_artifacts
 except ModuleNotFoundError:
     from artifacts import run_display_name, run_option_match_index, show_run_artifacts
 

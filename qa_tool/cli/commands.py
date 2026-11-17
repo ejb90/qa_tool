@@ -8,14 +8,14 @@ from typing import TextIO, cast
 import pandas as pd
 from rich.console import Console
 
-from qa_tool_cli.rendering import OutputFormat, print_dataframe, write_plot
-from qa_tool_core.comparisons import (
+from qa_tool.cli.rendering import OutputFormat, print_dataframe, write_plot
+from qa_tool.core.comparisons import (
     build_collection_comparison,
     build_collection_metric_deltas,
     build_model_comparison,
     build_version_comparison,
 )
-from qa_tool_core.plots import (
+from qa_tool.core.plots import (
     cdf_figure,
     comparison_delta_figure,
     model_collection_delta_figure,
@@ -23,7 +23,7 @@ from qa_tool_core.plots import (
     pie_figure,
     versions_by_model_figure,
 )
-from qa_tool_core.queries import MatchMode, aggregate_runs, model_mean_cdf_data, select_collection, version_sort_key
+from qa_tool.core.queries import MatchMode, aggregate_runs, model_mean_cdf_data, select_collection, version_sort_key
 
 
 def selected_metrics(requested_metric: str | None, available_metrics: list[str]) -> list[str]:

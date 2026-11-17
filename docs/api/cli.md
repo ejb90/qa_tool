@@ -2,12 +2,12 @@
 
 ## Parser and dispatch
 
-::: qa_tool_cli.cli
+::: qa_tool.cli.cli
 
 ## Command implementations
 
-::: qa_tool_cli.commands
+::: qa_tool.cli.commands
 
 ## Rendering and export
 
-::: qa_tool_cli.rendering
+::: qa_tool.cli.rendering

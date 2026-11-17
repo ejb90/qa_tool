@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 try:
-    from qa_tool_webapp.settings import configured_metrics
+    from qa_tool.webapp.settings import configured_metrics
 except ModuleNotFoundError:
     from settings import configured_metrics
 

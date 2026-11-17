@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pandas as pd
 
-from qa_tool_core.comparisons import (
+from qa_tool.core.comparisons import (
     build_collection_comparison as core_build_collection_comparison,
 )
-from qa_tool_core.comparisons import (
+from qa_tool.core.comparisons import (
     build_collection_metric_deltas as core_build_collection_metric_deltas,
 )
-from qa_tool_core.comparisons import (
+from qa_tool.core.comparisons import (
     build_version_comparison as core_build_version_comparison,
 )
-from qa_tool_webapp.exports import export_name
+from qa_tool.webapp.exports import export_name
 
 
 def build_version_comparison(

@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-import runpy
-import sys
 from pathlib import Path
 
 import duckdb
 import pytest
 
-from qa_tool_cli.cli import main as qa_tool_main
-from qa_tool_ingest.core import ingest_run
-from qa_tool_ingest.settings import load_settings
+from qa_tool.cli.cli import main as qa_tool_main
+from qa_tool.ingest.core import ingest_run
+from qa_tool.ingest.settings import load_settings
 
 
 def write_artifact(tmp_path: Path, name: str, metadata: dict[str, object]) -> Path:
@@ -223,12 +221,11 @@ def test_ingest_rejects_missing_renamed_json_key(tmp_path: Path) -> None:
         ingest_run(artifact_dir, artifact_dir / "metadata.json", settings)
 
 
-def test_module_cli_uses_default_metadata_location(
+def test_unified_cli_uses_default_metadata_location(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The package module ingests using default metadata.json and TOML settings."""
+    """The unified CLI ingests using default metadata.json and TOML settings."""
     artifact_dir = write_artifact(
         tmp_path,
         "cli-run",
@@ -248,13 +245,7 @@ def test_module_cli_uses_default_metadata_location(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["qa-tool-ingest", str(artifact_dir), "--settings", str(settings_path)],
-    )
-
-    runpy.run_module("qa_tool_ingest.__main__", run_name="__main__")
+    qa_tool_main(["ingest", str(artifact_dir), "--settings", str(settings_path)])
 
     assert "Ingested" in capsys.readouterr().out
     with duckdb.connect(str(database_path), read_only=True) as database:
@@ -275,7 +266,6 @@ def test_unified_cli_ingests_run(tmp_path: Path, capsys: pytest.CaptureFixture[s
 
 def test_cli_database_option_overrides_toml_destination(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The CLI database option takes precedence over the TOML destination."""
     artifact_dir = write_artifact(tmp_path, "override-run", {"uid": "run-7"})
@@ -286,20 +276,16 @@ def test_cli_database_option_overrides_toml_destination(
         "\n".join(["[database]", f'path = "{configured_database}"']),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
-        sys,
-        "argv",
+    qa_tool_main(
         [
-            "qa-tool-ingest",
+            "ingest",
             str(artifact_dir),
             "--settings",
             str(settings_path),
             "--database",
             str(override_database),
-        ],
+        ]
     )
-
-    runpy.run_module("qa_tool_ingest.__main__", run_name="__main__")
 
     assert override_database.is_file()
     assert not configured_database.exists()

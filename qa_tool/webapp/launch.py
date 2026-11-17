@@ -10,7 +10,7 @@ from importlib.resources import files
 
 def launch_webapp(arguments: Sequence[str] = ()) -> int:
     """Start Streamlit with the packaged application and return its exit code."""
-    app_path = files("qa_tool_webapp").joinpath("app.py")
+    app_path = files("qa_tool.webapp").joinpath("app.py")
     result = subprocess.run([sys.executable, "-m", "streamlit", "run", str(app_path), *arguments], check=False)
     return result.returncode
 

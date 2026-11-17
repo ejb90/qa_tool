@@ -9,18 +9,18 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from qa_tool_core.queries import (
+from qa_tool.core.queries import (
     load_runs as core_load_runs,
 )
-from qa_tool_core.queries import (
+from qa_tool.core.queries import (
     metric_columns as core_metric_columns,
 )
-from qa_tool_core.queries import (
+from qa_tool.core.queries import (
     normalize_run_columns as core_normalize_run_columns,
 )
 
 try:
-    from qa_tool_webapp.settings import configured_metrics
+    from qa_tool.webapp.settings import configured_metrics
 except ModuleNotFoundError:
     from settings import configured_metrics
 

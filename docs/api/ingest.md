@@ -2,16 +2,12 @@
 
 ## Public package
 
-::: qa_tool_ingest
+::: qa_tool.ingest
 
 ## Settings
 
-::: qa_tool_ingest.settings
+::: qa_tool.ingest.settings
 
 ## Core ingestion operations
 
-::: qa_tool_ingest.core
-
-## Command-line entry point
-
-::: qa_tool_ingest.cli
+::: qa_tool.ingest.core

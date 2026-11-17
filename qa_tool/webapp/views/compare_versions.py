@@ -8,14 +8,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from qa_tool_core.queries import version_sort_key
+from qa_tool.core.queries import version_sort_key
 
 try:
-    from qa_tool_webapp.compare import build_collection_metric_deltas, build_version_comparison
-    from qa_tool_webapp.data import dataframe_to_csv
-    from qa_tool_webapp.exports import export_name
-    from qa_tool_webapp.styling import select_comparison_color_scheme, styled_comparison_table
-    from qa_tool_webapp.views.common import show_comparison_cdf_plot
+    from qa_tool.webapp.compare import build_collection_metric_deltas, build_version_comparison
+    from qa_tool.webapp.data import dataframe_to_csv
+    from qa_tool.webapp.exports import export_name
+    from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
+    from qa_tool.webapp.views.common import show_comparison_cdf_plot
 except ModuleNotFoundError:
     from compare import build_collection_metric_deltas, build_version_comparison
     from data import dataframe_to_csv
