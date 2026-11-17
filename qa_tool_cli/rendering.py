@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Literal, TextIO
 
@@ -11,6 +12,15 @@ from rich.console import Console
 from rich.table import Table
 
 OutputFormat = Literal["html", "png", "csv", "parquet"]
+
+
+def require_png_support(formats: list[OutputFormat]) -> None:
+    """Reject PNG output when the optional Kaleido dependency is unavailable."""
+    if "png" in formats and find_spec("kaleido") is None:
+        raise ValueError(
+            "PNG export requires the optional `png` dependencies. Install them with "
+            "`pip install 'qa-tool[png]'`, `uv tool install 'qa-tool[png]'`, or `uv sync --extra png`."
+        )
 
 
 def print_dataframe(console: Console, dataframe: pd.DataFrame, title: str) -> None:
@@ -69,13 +79,11 @@ def write_plot(
         path = output_dir / f"{name}.png"
         try:
             figure.write_image(path)
-        except (RuntimeError, ValueError):
-            if stderr is not None:
-                print(
-                    "Could not write PNG; install or repair Kaleido's Chrome-compatible browser backend. "
-                    "Other requested artifacts were written.",
-                    file=stderr,
-                )
+        except (RuntimeError, ValueError) as error:
+            raise ValueError(
+                "PNG export failed. Install the optional `qa-tool[png]` dependencies and ensure "
+                "Kaleido can access a compatible Chrome or Chromium browser."
+            ) from error
         else:
             paths.append(path)
     if stderr is not None:

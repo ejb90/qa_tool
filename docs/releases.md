@@ -27,7 +27,7 @@ After publishing, verify the installed commands in a clean environment:
 
 ```bash
 uv tool install qa-tool
-qa_tool --help
-qa_tool_ingest --help
-qa_tool_webapp --help
+qa-tool --help
+qa-tool ingest --help
+qa-tool webapp --help
 ```

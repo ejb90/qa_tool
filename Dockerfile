@@ -23,7 +23,7 @@ RUN uv sync --locked --no-dev
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "qa_tool_webapp/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+CMD ["qa-tool", "webapp", "--", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
 
 # Alternative without the Astral/uv base image. This is a complete Dockerfile
 # using the official Python image and pip, but it resolves dependencies during
@@ -34,4 +34,4 @@ CMD ["streamlit", "run", "qa_tool_webapp/app.py", "--server.address=0.0.0.0", "-
 # COPY . .
 # RUN pip install --no-cache-dir .
 # EXPOSE 8501
-# CMD ["streamlit", "run", "qa_tool_webapp/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+# CMD ["qa-tool", "webapp", "--", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]

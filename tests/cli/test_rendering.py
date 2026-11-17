@@ -5,10 +5,29 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from plotly.graph_objects import Figure
 from pytest import MonkeyPatch
 
-from qa_tool_cli.rendering import write_plot
+from qa_tool_cli.rendering import require_png_support, write_plot
+
+
+def test_require_png_support_rejects_missing_optional_dependency(monkeypatch: MonkeyPatch) -> None:
+    """An explicit PNG request explains how to install the optional dependencies."""
+    monkeypatch.setattr("qa_tool_cli.rendering.find_spec", lambda _name: None)
+
+    with pytest.raises(ValueError, match=r"qa-tool\[png\]"):
+        require_png_support(["png"])
+
+
+def test_require_png_support_ignores_non_png_formats(monkeypatch: MonkeyPatch) -> None:
+    """Standard formats do not inspect or require the optional PNG backend."""
+    monkeypatch.setattr(
+        "qa_tool_cli.rendering.find_spec",
+        lambda _name: pytest.fail("Kaleido should not be inspected"),
+    )
+
+    require_png_support(["html", "csv", "parquet"])
 
 
 def test_write_plot_writes_png_raw_data_and_table(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -33,8 +52,8 @@ def test_write_plot_writes_png_raw_data_and_table(monkeypatch: MonkeyPatch, tmp_
     }
 
 
-def test_write_plot_preserves_tabular_artifacts_when_png_export_fails(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    """CSV and Parquet artifacts remain available when the local PNG browser backend is unavailable."""
+def test_write_plot_reports_failed_png_backend(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """A failed browser backend produces actionable guidance after writing tabular artifacts."""
 
     def failing_write_image(_figure: Figure, _path: Path) -> None:
         """Simulate a missing or failed browser backend."""
@@ -43,9 +62,9 @@ def test_write_plot_preserves_tabular_artifacts_when_png_export_fails(monkeypatc
     monkeypatch.setattr(Figure, "write_image", failing_write_image)
     dataframe = pd.DataFrame({"model": ["h2"], "density": [1.0]})
 
-    paths = write_plot(Figure(), dataframe, dataframe, tmp_path, "model_h2_density", ["png", "csv", "parquet"])
+    with pytest.raises(ValueError, match="Chrome or Chromium"):
+        write_plot(Figure(), dataframe, dataframe, tmp_path, "model_h2_density", ["png", "csv", "parquet"])
 
     assert (tmp_path / "model_h2_density.csv").exists()
     assert (tmp_path / "model_h2_density_table.parquet").exists()
     assert not (tmp_path / "model_h2_density.png").exists()
-    assert "model_h2_density.png" not in {path.name for path in paths}

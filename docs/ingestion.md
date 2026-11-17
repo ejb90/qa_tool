@@ -1,49 +1,78 @@
-# Ingestion
+# Data ingestion
 
-`qa_tool_ingest` turns an artifact directory and one JSON metadata document into a row in DuckDB. It appends the row, evolves the table schema when necessary, records the artifact path, and rebuilds `run_summary`.
+`qa-tool ingest` converts one JSON metadata object and its artifact directory into a row in DuckDB. It creates the database on first use, evolves the `runs` schema when new keys appear, records the artifact path, and rebuilds `run_summary` after every insertion.
 
-## Basic use
+## Ingest one run
 
-```bash
-uv run python -m qa_tool_ingest store/my-run
+Given this layout:
+
+```text
+store/
+└── my-run/
+    ├── metadata.json
+    ├── density.parquet
+    └── report.txt
 ```
 
-By default the metadata file is `store/my-run/metadata.json`. Specify another file when needed:
+run:
 
 ```bash
-uv run python -m qa_tool_ingest store/my-run --metadata results/run.json
+qa-tool ingest store/my-run
 ```
 
-## Choose a database
-
-The ingestion settings file supplies the default destination. A command-line database always wins:
+The metadata path defaults to `<artifact_dir>/metadata.json`. Override it when the JSON lives elsewhere:
 
 ```bash
-uv run python -m qa_tool_ingest store/my-run \
-  --settings ingest.toml \
-  --database results/experiment.duckdb
+qa-tool ingest store/my-run --metadata results/my-run.json
 ```
 
-## Metadata example
+Choose a destination database explicitly:
+
+```bash
+qa-tool ingest store/my-run --database results/experiment.duckdb
+```
+
+Parent directories and the `.duckdb` file are created automatically.
+
+## Metadata format
+
+The JSON document must contain an object at its top level:
 
 ```json
 {
   "uid": "e2f3bdf2",
+  "name": "release density",
   "model": "h2",
   "version": "v2.1.0",
-  "date": "2026-07-10T12:30:00",
+  "date": "2026-11-17T12:30:00Z",
   "density": 1.41,
   "error": 0.003,
   "git_branch": "release",
-  "modified": false
+  "modified": false,
+  "provenance": {
+    "commit": "abc123"
+  }
 }
 ```
 
-Top-level scalar values are stored in native DuckDB columns. Nested objects and lists are stored as JSON text, preserving their information without forcing a fixed nested schema.
+Top-level scalar values are stored using DuckDB-compatible native types inferred from the first row. Dictionaries and lists are serialized as JSON text. The ingestion command adds its own `artifact` value containing the artifact-directory path supplied on the command line.
 
-## Select, exclude, and rename keys
+The analysis interfaces expect these conventional fields:
 
-Start from `qa_tool_ingest/default_settings.toml`, then create an override such as:
+| Field | Purpose |
+| --- | --- |
+| `uid` | Stable run identifier. |
+| `date` | Sorting and date-window selection. |
+| `model` | Default model/device/material grouping. |
+| `version` | Default release grouping. |
+| `name` | Optional display name; the analysis layer falls back to `uid`. |
+| `modified` | Optional filtering of modified runs. |
+
+Any other numeric column is eligible for tables, summaries, and plots.
+
+## Configure ingestion
+
+Create an `ingest.toml` override when metadata keys need selecting or renaming:
 
 ```toml
 [database]
@@ -66,15 +95,47 @@ distinct_columns = ["model", "version"]
 mean_columns = ["density", "elapsed_seconds"]
 ```
 
-An empty `include` ingests every top-level JSON key. `rename` provides the output-column name on the left and JSON key on the right.
+Apply it with:
 
-## What gets updated
+```bash
+qa-tool ingest store/my-run --settings ingest.toml
+```
 
-After every successful insertion, ingestion rebuilds `run_summary` with:
+An empty `include` list selects every top-level key. `exclude` removes selected keys. Each rename uses the output column on the left and source JSON key on the right.
 
-- `refreshed_at`
-- `run_count`
-- one `<column>_count` field for every configured, available `distinct_columns` entry
-- one `mean_<column>` field for every configured numeric `mean_columns` entry
+## Schema evolution
 
-The splash page renders all non-metadata fields in that summary row, so the summary can grow with your needs.
+The first row creates the `runs` table. For later rows, ingestion:
+
+1. compares incoming fields with existing columns;
+2. adds missing columns using the incoming DuckDB type;
+3. inserts values for the fields present in that run;
+4. leaves other existing columns null;
+5. replaces `run_summary` with freshly calculated values.
+
+`run_summary` always contains `refreshed_at` and `run_count`. It also contains `<column>_count` for configured distinct columns and `mean_<column>` for configured numeric mean columns.
+
+!!! warning "Type changes"
+
+    Schema evolution adds columns; it does not migrate an existing column to a new type. Keep the type of a metadata key consistent across runs.
+
+## Ingest several directories
+
+The command accepts one artifact directory at a time. A shell loop can ingest an existing store:
+
+```bash
+for run_dir in store/*; do
+  [ -f "$run_dir/metadata.json" ] || continue
+  qa-tool ingest "$run_dir"
+done
+```
+
+For automated pipelines, stop on the first failed ingestion and publish the database only after the complete batch succeeds.
+
+## Operational considerations
+
+- Ingestion appends; it does not update or deduplicate an existing `uid`.
+- Use one writer at a time. Do not let the dashboard or another job write the same DuckDB file concurrently.
+- Store paths that remain valid wherever the dashboard runs. Relative artifact paths are resolved from the dashboard's working directory.
+- When modifying `runs` outside QA Tool, rebuild `run_summary` before relying on the Overview page.
+- For remote deployment, publish complete database-and-artifact snapshots rather than replacing a live database in place. See [Deployment](deployment.md).

@@ -5,7 +5,7 @@ Contributions are welcome. QA Tool uses uv for dependency management, Ruff for l
 ## Setup
 
 ```sh
-uv sync --group dev
+uv sync --group dev --extra docs
 ```
 
 ## Checks

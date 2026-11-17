@@ -67,7 +67,7 @@ def main(settings_path: str | Path | None = None) -> None:
 
     db_path = Path(settings["database"]["path"])
     if not db_path.exists():
-        st.error(f"Could not find {db_path}. Run `uv run python -m qa_tool_webapp.load_dummy_data` first.")
+        st.error(f"Could not find {db_path}. Add a run with `qa-tool ingest ARTIFACT_DIR` first.")
         return
     if db_path.suffix != ".duckdb":
         st.error("QA Tool requires a DuckDB database with a `.duckdb` extension.")

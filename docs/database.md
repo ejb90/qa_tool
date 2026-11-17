@@ -1,4 +1,4 @@
-# Data model and settings
+# Data model
 
 ## DuckDB tables
 
@@ -25,29 +25,9 @@ The ingestion command creates or refreshes these tables. It is safe to append ru
 
 Any numeric column other than the identifier/date columns is eligible for metrics, tables, comparisons, and plots.
 
-## Web-app settings
+## Existing databases
 
-The web application starts with `qa_tool_webapp/default_settings.toml`. Pass an override with `--settings` or set `QA_TOOL_SETTINGS`.
-
-```toml
-[database]
-path = "runs.duckdb"
-artifact_root = "./store"
-
-[database.columns]
-# Map a differently named source schema to QA Tool's canonical names.
-model = "device"
-version = "release"
-
-[tables.all_runs]
-# Empty keeps database order. Otherwise this is both the visible set and order.
-columns = ["uid", "model", "version", "date", "density", "artifact"]
-
-[tabs]
-run_detail = false
-```
-
-The CLI reads the same settings, including model/version mappings and plot height.
+The dashboard and CLI can read an existing DuckDB `runs` table when it provides `uid`, `date`, and the configured model/version columns. Use `[database.columns]` to map differently named grouping columns without rewriting the table. See [Configuration](configuration.md).
 
 ## Summary refresh timing
 

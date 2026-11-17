@@ -3,7 +3,7 @@
 Run the dashboard with:
 
 ```bash
-uv run streamlit run qa_tool_webapp/app.py
+qa-tool webapp
 ```
 
 ## Run in Docker
@@ -41,8 +41,10 @@ the example path.
 Pass a settings override as usual:
 
 ```bash
-uv run streamlit run qa_tool_webapp/app.py -- --settings settings.toml
+qa-tool webapp --settings settings.toml
 ```
+
+See [Configuration](configuration.md) for database paths, column mappings, enabled tabs, summaries, and plot sizing. Additional Streamlit arguments can be passed after `--`, for example `qa-tool webapp -- --server.port=8600`.
 
 ## Navigation and loading
 

@@ -43,11 +43,15 @@ extra_css:
 nav:
   - Overview: index.md
   - Getting started: getting-started.md
-  - Data model: database.md
-  - Ingestion: ingestion.md
-  - Web application: web-app.md
-  - Deployment: deployment.md
-  - Command line: cli.md
+  - User guide:
+      - Installation: installation.md
+      - Data ingestion: ingestion.md
+      - Data model: database.md
+      - Configuration: configuration.md
+      - Web application: web-app.md
+      - Command line: cli.md
+      - Plots and exports: plotting.md
+      - Deployment: deployment.md
   - Python API:
       - Overview: api/index.md
       - Core library: api/core.md
@@ -61,6 +65,8 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
+          paths:
+            - .
           options:
             docstring_section_style: table
             members_order: source

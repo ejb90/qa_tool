@@ -81,7 +81,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install documentation dependencies
-        run: uv sync --group dev
+        run: uv sync --no-dev --extra docs
 
       - name: Build documentation strictly
         run: uv run mkdocs build --strict

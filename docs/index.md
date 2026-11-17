@@ -11,6 +11,8 @@ QA Tool is a small system for collecting, browsing, comparing, and exporting qua
 | Explore runs interactively, filter, inspect artifacts, or compare individual runs | [Web application](web-app.md) |
 | Automate reports, save plots, or work over SSH | [Command line](cli.md) |
 | Add a new run and refresh the overview summary | [Ingestion](ingestion.md) |
+| Install optional PNG or documentation support | [Installation](installation.md) |
+| Choose plot and export formats | [Plots and exports](plotting.md) |
 
 ## Key ideas
 
@@ -25,12 +27,12 @@ QA Tool is a small system for collecting, browsing, comparing, and exporting qua
 metadata.json + artifact directory
         │
         ▼
-qa_tool_ingest
+qa-tool ingest
         │
         ▼
 runs.duckdb  ──────────► Streamlit dashboard
         │
-        └──────────────► qa_tool CLI reports and export files
+        └──────────────► qa-tool reports and export files
 ```
 
-Start with [Getting started](getting-started.md).
+Start with [Getting started](getting-started.md), then use the [Configuration](configuration.md) guide to adapt paths and views to your data.

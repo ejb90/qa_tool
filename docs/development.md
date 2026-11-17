@@ -1,12 +1,18 @@
 # Development
 
+Install the development tools and documentation toolchain:
+
+```bash
+uv sync --group dev --extra docs
+```
+
 ## Package responsibilities
 
 | Package | Responsibility |
 | --- | --- |
 | `qa_tool_core` | DuckDB loading, schema normalization, run aggregation, collection selection, comparisons, settings helpers, and Plotly figure builders. |
 | `qa_tool_webapp` | Streamlit-specific widgets, styling, navigation, artifact browsing, and download controls. |
-| `qa_tool_cli` | Rich argument parsing, terminal tables, and file export orchestration. |
+| `qa_tool_cli` | Rich Click command tree, Rich terminal tables, and file export orchestration. |
 | `qa_tool_ingest` | JSON/artifact ingestion, evolving DuckDB schema, and summary refresh. |
 
 Keep data calculations in `qa_tool_core` whenever they are useful to both the web and command-line interfaces.
@@ -23,7 +29,7 @@ uv run ruff check qa_tool_core qa_tool_cli qa_tool_webapp qa_tool_ingest tests
 Run the focused test suite:
 
 ```bash
-uv run pytest tests/cli tests/app tests/ingestion -o addopts=''
+uv run pytest tests/cli tests/app tests/core tests/ingestion -o addopts=''
 ```
 
 Run the complete release check locally:

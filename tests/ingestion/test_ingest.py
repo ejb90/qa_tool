@@ -10,6 +10,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from qa_tool_cli.cli import main as qa_tool_main
 from qa_tool_ingest.core import ingest_run
 from qa_tool_ingest.settings import load_settings
 
@@ -258,6 +259,18 @@ def test_module_cli_uses_default_metadata_location(
     assert "Ingested" in capsys.readouterr().out
     with duckdb.connect(str(database_path), read_only=True) as database:
         assert database.execute("SELECT uid, score FROM runs").fetchone() == ("run-6", 6.0)
+
+
+def test_unified_cli_ingests_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The generic qa-tool entry point exposes ingestion as a subcommand."""
+    artifact_dir = write_artifact(tmp_path, "unified-run", {"uid": "run-unified", "score": 8.0})
+    database_path = tmp_path / "unified.duckdb"
+
+    qa_tool_main(["ingest", str(artifact_dir), "--database", str(database_path)])
+
+    assert "Ingested run" in capsys.readouterr().out
+    with duckdb.connect(str(database_path), read_only=True) as database:
+        assert database.execute("SELECT uid, score FROM runs").fetchone() == ("run-unified", 8.0)
 
 
 def test_cli_database_option_overrides_toml_destination(

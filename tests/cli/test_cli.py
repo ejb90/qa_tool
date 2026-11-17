@@ -53,12 +53,89 @@ def run_cli(database_path: Path, output_dir: Path, arguments: list[str]) -> None
             str(output_dir),
             "--metric",
             "density",
-            "--formats",
+            "--format",
             "html",
+            "--format",
             "csv",
+            "--format",
             "parquet",
         ]
     )
+
+
+def test_root_help_lists_unified_commands(capsys: pytest.CaptureFixture[str]) -> None:
+    """The generic entry point advertises ingestion, serving, and analysis commands."""
+    main(["--help"])
+
+    output = capsys.readouterr().out
+    for command in ("ingest", "webapp", "model", "version", "compare", "pie"):
+        assert command in output
+
+
+def test_webapp_forwards_settings_and_streamlit_arguments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The unified webapp command separates Streamlit and application arguments."""
+    settings_path = tmp_path / "settings.toml"
+    settings_path.write_text("[page]\ntitle = 'Test'\n", encoding="utf-8")
+    captured_arguments: list[str] = []
+
+    def fake_launch(arguments: list[str]) -> int:
+        captured_arguments.extend(arguments)
+        return 0
+
+    monkeypatch.setattr("qa_tool_cli.cli.launch_webapp", fake_launch)
+
+    main(["webapp", "--settings", str(settings_path), "--", "--server.port=8600"])
+
+    assert captured_arguments == ["--server.port=8600", "--", "--settings", str(settings_path)]
+
+
+def test_default_formats_do_not_require_png_dependencies(database_path: Path, tmp_path: Path) -> None:
+    """A standard CLI invocation defaults to formats supported by the base installation."""
+    output_dir = tmp_path / "default-formats"
+    main(
+        [
+            "model",
+            "h2",
+            "--database",
+            str(database_path),
+            "--output-dir",
+            str(output_dir),
+            "--metric",
+            "density",
+        ]
+    )
+
+    assert (output_dir / "model_h2_density.html").exists()
+    assert (output_dir / "model_h2_density.csv").exists()
+    assert (output_dir / "model_h2_density.parquet").exists()
+    assert not (output_dir / "model_h2_density.png").exists()
+
+
+def test_png_request_reports_missing_optional_dependencies(
+    database_path: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit PNG request fails early with installation instructions."""
+    monkeypatch.setattr("qa_tool_cli.rendering.find_spec", lambda _name: None)
+
+    with pytest.raises(SystemExit, match="1"):
+        main(
+            [
+                "model",
+                "h2",
+                "--database",
+                str(database_path),
+                "--output-dir",
+                str(tmp_path),
+                "--format",
+                "png",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert "qa-tool[png]" in captured.out + captured.err
 
 
 def test_model_command_prints_table_and_writes_plot(
@@ -66,7 +143,7 @@ def test_model_command_prints_table_and_writes_plot(
 ) -> None:
     """The model command renders a Rich table and an interactive model plot."""
     output_dir = tmp_path / "plots"
-    run_cli(database_path, output_dir, ["model", "--models", "h2", "co2"])
+    run_cli(database_path, output_dir, ["model", "h2", "co2"])
     assert "h2 (2 runs)" in capsys.readouterr().out
     assert (output_dir / "model_h2_density.html").exists()
     assert (output_dir / "model_co2_density.html").exists()
@@ -79,7 +156,7 @@ def test_version_command_writes_version_and_cdf_plots(
 ) -> None:
     """The version command emits model tables plus both plots from the web view."""
     output_dir = tmp_path / "plots"
-    run_cli(database_path, output_dir, ["version", "--versions", "v1.0.0", "v2.0.0", "--cdf-version", "v2.0.0"])
+    run_cli(database_path, output_dir, ["version", "v1.0.0", "v2.0.0", "--cdf-version", "v2.0.0"])
     assert "v2.0.0 (2 runs)" in capsys.readouterr().out
     assert (output_dir / "versions_density.html").exists()
     assert (output_dir / "version_cdf_v2.0.0_density.html").exists()
@@ -92,7 +169,7 @@ def test_compare_versions_writes_delta_and_cdf_plots(
 ) -> None:
     """Version comparison produces a shared-model table, delta plot, and CDF plot."""
     output_dir = tmp_path / "plots"
-    run_cli(database_path, output_dir, ["compare", "versions", "--base-version", "v1.0.0", "--test-version", "v2.0.0"])
+    run_cli(database_path, output_dir, ["compare", "versions", "v1.0.0", "v2.0.0"])
     assert "v2.0.0 minus v1.0.0" in capsys.readouterr().out
     assert (output_dir / "compare_versions_v1.0.0_to_v2.0.0_density.html").exists()
     assert (output_dir / "compare_versions_cdf_density.html").exists()
@@ -103,7 +180,7 @@ def test_compare_models_writes_aggregate_delta_plot(
 ) -> None:
     """Model collection comparison reports aggregate metric differences and a plot."""
     output_dir = tmp_path / "plots"
-    run_cli(database_path, output_dir, ["compare", "models", "--base-models", "h2", "--test-models", "co2"])
+    run_cli(database_path, output_dir, ["compare", "models", "--base", "h2", "--test", "co2"])
     assert "Models co2 minus h2" in capsys.readouterr().out
     assert (output_dir / "compare_models_density.html").exists()
 
@@ -177,8 +254,9 @@ def test_pie_command_defaults_to_run_counts(
             str(database_path),
             "--output-dir",
             str(output_dir),
-            "--formats",
+            "--format",
             "html",
+            "--format",
             "csv",
         ]
     )
@@ -194,14 +272,14 @@ def test_model_command_defaults_to_every_numeric_metric(database_path: Path, tmp
     main(
         [
             "model",
-            "--models",
             "h2",
             "--database",
             str(database_path),
             "--output-dir",
             str(output_dir),
-            "--formats",
+            "--format",
             "html",
+            "--format",
             "csv",
         ]
     )
@@ -216,7 +294,6 @@ def test_artifact_paths_require_top_level_verbose(
     quiet_output_dir = tmp_path / "quiet"
     command = [
         "model",
-        "--models",
         "h2",
         "--metric",
         "density",
@@ -224,7 +301,7 @@ def test_artifact_paths_require_top_level_verbose(
         str(database_path),
         "--output-dir",
         str(quiet_output_dir),
-        "--formats",
+        "--format",
         "html",
     ]
     main(command)
