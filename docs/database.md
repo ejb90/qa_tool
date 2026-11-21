@@ -25,6 +25,16 @@ The ingestion command creates or refreshes these tables. It is safe to append ru
 
 Any numeric column other than the identifier/date columns is eligible for metrics, tables, comparisons, and plots.
 
+## Version ordering
+
+QA Tool parses version values with Python Packaging's PEP 440 implementation instead of ordering their text lexically. Numeric components and release phases therefore behave as versions:
+
+```text
+v1.9 < v1.10 < v2.0.dev1 < v2.0rc1 < v2.0 < v2.0.post1
+```
+
+This ordering is shared by dashboard filters, version selectors, tables, plots, run selectors, and CLI reports. Version values that Packaging cannot parse are rejected with a PEP 440 validation error rather than receiving invented ordering semantics.
+
 ## Existing databases
 
 The dashboard and CLI can read an existing DuckDB `runs` table when it provides `uid`, `date`, and the configured model/version columns. Use `[database.columns]` to map differently named grouping columns without rewriting the table. See [Configuration](configuration.md).

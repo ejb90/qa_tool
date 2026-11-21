@@ -3,7 +3,7 @@
 Run the dashboard with:
 
 ```bash
-qa-tool webapp
+qa-tool serve
 ```
 
 ## Run in Docker
@@ -41,14 +41,24 @@ the example path.
 Pass a settings override as usual:
 
 ```bash
-qa-tool webapp --settings settings.toml
+qa-tool serve --settings settings.toml
 ```
 
-See [Configuration](configuration.md) for database paths, column mappings, enabled tabs, summaries, and plot sizing. Additional Streamlit arguments can be passed after `--`, for example `qa-tool webapp -- --server.port=8600`.
+See [Configuration](configuration.md) for database paths, column mappings, enabled tabs, summaries, and plot sizing. Additional Streamlit arguments can be passed after `--`, for example `qa-tool serve -- --server.port=8600`.
 
 ## Navigation and loading
 
 The top tabs remain available on every page. The **Overview** splash page shows only stored summary quantities and navigation cards. Detailed runs are loaded only after you open another tab, keeping the initial page responsive even for a large database.
+
+Every view has a stable URL using its configuration key, for example:
+
+```text
+https://qa.example.org/?view=all_runs
+https://qa.example.org/?view=compare_versions
+https://qa.example.org/?view=saved_comparisons
+```
+
+Changing tabs updates the browser address, so copy that address to link another user directly to the current view. Disabled or unknown views fall back to the first enabled tab.
 
 ## Main pages
 
@@ -63,6 +73,14 @@ The top tabs remain available on every page. The **Overview** splash page shows 
 | Compare Run | Scalar and artifact-level comparison of two individual runs. |
 | Pie Charts | Run-count or metric-total donut charts by model or version. |
 | Run Detail | Artifact inspection and Parquet time-series plots. |
+| Saved Comparisons | Verify, inspect, and download comparison snapshots without recalculating from DuckDB. |
+
+??? example "Example analysis paths"
+
+    - To investigate a release regression, open **Compare Versions**, choose the earlier release as the base, select the candidate release, and preserve the result.
+    - To isolate an environmental change, open **Compare Collection** and select rows by branch, scheduler, queue, date window, or another metadata field.
+    - To inspect a single outlier, open **Compare Run** for scalar and shared Parquet-series differences, then use **Run Detail** to browse its remaining artifacts.
+    - To revisit a decision after the live database changes, open **Saved Comparisons** and select the immutable snapshot ID.
 
 The Pie Charts view turns the current filtered runs into a model- or version-based donut chart:
 
@@ -78,10 +96,18 @@ Non-overview pages expose shared model, version, date, and metric filters. The A
 
 ![All Runs page with shared sidebar filters and detailed run table](assets/webapp-all-runs.png){ loading=lazy }
 
+## Preserve comparisons
+
+The three comparison pages include a collapsed **Preserve this comparison** section below their results. Saving records the complete selected database rows, calculated table, standalone report, manifest, and checksums in `[archive].save_path`. **Compare Run** additionally copies the resolved local artifact directories so its detailed source data remains available; the CLI run comparison does the same.
+
+After saving, download the complete snapshot as a ZIP or open **Saved Comparisons** to verify and inspect it. The browser address is updated to a durable link such as `https://qa.example.org/?view=saved_comparisons&comparison=a8c41f92de10`; opening that link selects the Saved Comparisons tab and snapshot automatically. Copy the address to share the result with another authorized user of the hosted app. The shorter form containing only `?comparison=...` also works.
+
+The page merges all configured `[archive].search_paths`, so local and shared archives can be browsed together. It reads snapshots rather than recalculating against the current database and remains available when the configured DuckDB file is absent. The receiving app instance must be able to read the linked snapshot; the URL contains its ID, not the archived data. Detailed manifests and input rows remain collapsed until requested. See [Comparison archives](comparison-archives.md) for the format and CLI recovery commands.
+
 ## Artifacts
 
 The app combines `artifact` from the run row with `artifact_root` when locating local files. Parquet files with a time-like column are plotted as time series. Archive artifacts are unpacked safely into a temporary location before inspection.
 
 !!! note
 
-    Run Detail is intentionally web-only at present. The CLI covers aggregate tables, plots, and comparisons but does not yet inspect individual artifact contents.
+    Interactive artifact inspection remains web-only. The CLI can compare individual scalar run metadata and create a recoverable snapshot, but it does not render every artifact type in the terminal.

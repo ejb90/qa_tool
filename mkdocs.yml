@@ -51,6 +51,7 @@ nav:
       - Web application: web-app.md
       - Command line: cli.md
       - Plots and exports: plotting.md
+      - Comparison archives: comparison-archives.md
       - Deployment: deployment.md
   - Python API:
       - Overview: api/index.md

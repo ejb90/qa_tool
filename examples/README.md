@@ -10,8 +10,8 @@ uv run qa-tool ingest examples/sample-run
 Inspect the result from the terminal or start the web application:
 
 ```bash
-uv run qa-tool model h2 --metric density
-uv run qa-tool webapp
+uv run qa-tool report models h2 --metric density
+uv run qa-tool serve
 ```
 
 After starting the web application, open the Streamlit dashboard at

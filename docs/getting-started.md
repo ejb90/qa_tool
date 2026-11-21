@@ -54,7 +54,7 @@ qa-tool ingest store/run-001 --database results/experiment.duckdb
 ## Open the dashboard
 
 ```bash
-qa-tool webapp
+qa-tool serve
 ```
 
 Open <http://localhost:8501>. The Overview page reads the stored summary; analysis tabs load the detailed run rows when opened.
@@ -62,7 +62,7 @@ Open <http://localhost:8501>. The Overview page reads the stored summary; analys
 ## Create a report
 
 ```bash
-qa-tool model h2 --metric density
+qa-tool report models h2 --metric density
 ```
 
 The command prints a Rich table and writes interactive HTML plus CSV and Parquet files to `qa_tool_output/`.

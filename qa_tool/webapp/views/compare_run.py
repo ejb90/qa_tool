@@ -6,25 +6,18 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from packaging.version import Version
 
-try:
-    from qa_tool.webapp.artifacts import (
-        compare_run_parquet_pairs,
-        run_display_name,
-        run_option_match_index,
-        show_compare_run_artifacts,
-    )
-    from qa_tool.webapp.compare import build_run_scalar_comparison
-    from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
-except ModuleNotFoundError:
-    from artifacts import (
-        compare_run_parquet_pairs,
-        run_display_name,
-        run_option_match_index,
-        show_compare_run_artifacts,
-    )
-    from compare import build_run_scalar_comparison
-    from styling import select_comparison_color_scheme, styled_comparison_table
+from qa_tool.webapp.artifacts import (
+    compare_run_parquet_pairs,
+    first_local_artifact_path,
+    run_display_name,
+    run_option_match_index,
+    show_compare_run_artifacts,
+)
+from qa_tool.webapp.compare import build_run_scalar_comparison
+from qa_tool.webapp.exports import show_comparison_archive_controls
+from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
 
 
 def show_compare_run(
@@ -41,7 +34,10 @@ def show_compare_run(
         st.info("At least two runs are needed for a comparison.")
         return
 
-    run_options = filtered.sort_values(["model", "version", "name"]).reset_index(drop=True)
+    run_options = filtered.sort_values(
+        ["model", "version", "name"],
+        key=lambda column: column.map(Version) if column.name == "version" else column,
+    ).reset_index(drop=True)
     selector_columns = st.columns(2)
     top_pasted_id = selector_columns[0].text_input("Paste top run UID or name", value="")
     bottom_pasted_id = selector_columns[1].text_input("Paste bottom run UID or name", value="")
@@ -82,3 +78,21 @@ def show_compare_run(
     if compare_run_parquet_pairs(top_run, bottom_run, artifact_root):
         st.subheader("Artifact Time Series")
         show_compare_run_artifacts(top_run, bottom_run, artifact_root, plot_height)
+
+    show_comparison_archive_controls(
+        settings=settings,
+        comparison_type="runs",
+        base_label=str(top_run["uid"]),
+        test_label=str(bottom_run["uid"]),
+        base_runs=top_run.to_frame().T,
+        test_runs=bottom_run.to_frame().T,
+        comparison=scalar_comparison,
+        metrics=metrics,
+        key="compare_run_archive",
+        parameters={"orientation": "bottom_minus_top"},
+        artifact_paths={
+            str(run["uid"]): artifact_path
+            for run in (top_run, bottom_run)
+            if (artifact_path := first_local_artifact_path(run, artifact_root)) is not None
+        },
+    )

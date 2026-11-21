@@ -25,12 +25,13 @@ The installation provides one command tree:
 | Command | Purpose |
 | --- | --- |
 | `qa-tool ingest` | Add one run's metadata to DuckDB. |
-| `qa-tool webapp` | Start the Streamlit dashboard. |
-| `qa-tool model`, `version`, `compare`, `pie` | Terminal reports, comparisons, plots, and exports. |
+| `qa-tool serve` | Start the Streamlit dashboard. |
+| `qa-tool report models`, `versions`, `breakdown` | Generate terminal reports, plots, and tabular exports. |
+| `qa-tool compare` | Compare runs, versions, models, or collections and save a snapshot. |
 
 Verify the installation with `qa-tool --help`.
 
-The installed executable is `qa-tool`. Ingestion, analysis, and the web application are exposed as subcommands such as `qa-tool ingest` and `qa-tool webapp`.
+The installed executable is `qa-tool`. Ingestion, reporting, comparison, and the web application are exposed as subcommands such as `qa-tool ingest`, `qa-tool report`, and `qa-tool serve`.
 
 ## Optional extras
 
@@ -93,7 +94,7 @@ Run project commands from a checkout with `uv run`, for example:
 
 ```bash
 uv run qa-tool --help
-uv run qa-tool webapp
+uv run qa-tool serve
 ```
 
 ## Upgrade or remove

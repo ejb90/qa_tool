@@ -14,7 +14,8 @@ QA Tool collects run metadata in DuckDB and exposes it through a Streamlit dashb
 - browse, filter, and download run data in Streamlit
 - compare versions, models, arbitrary collections, or individual runs
 - create Plotly trends, CDFs, difference charts, and donut charts
-- export interactive HTML, CSV, and Parquet by default
+- preserve comparisons as checksummed, self-contained HTML/CSV/Parquet snapshots
+- export ordinary reports as interactive HTML, CSV, and Parquet by default
 - export static PNG files through an optional Kaleido installation
 
 ## Install
@@ -63,7 +64,7 @@ qa-tool ingest store/my-run
 Open the dashboard:
 
 ```bash
-qa-tool webapp
+qa-tool serve
 ```
 
 Open the Streamlit dashboard at <http://localhost:8501>.
@@ -71,7 +72,14 @@ Open the Streamlit dashboard at <http://localhost:8501>.
 Or create a terminal report and export files:
 
 ```bash
-qa-tool model h2 --metric density
+qa-tool report models h2 --metric density
+```
+
+Create a durable comparison snapshot:
+
+```bash
+qa-tool compare runs run-001 run-002
+qa-tool archive list
 ```
 
 ## Documentation
@@ -81,6 +89,7 @@ qa-tool model h2 --metric density
 - [Configuration](https://qa-tool.readthedocs.io/en/latest/configuration/)
 - [Command line](https://qa-tool.readthedocs.io/en/latest/cli/)
 - [Plots and exports](https://qa-tool.readthedocs.io/en/latest/plotting/)
+- [Comparison archives](https://qa-tool.readthedocs.io/en/latest/comparison-archives/)
 - [Web application](https://qa-tool.readthedocs.io/en/latest/web-app/)
 - [Deployment](https://qa-tool.readthedocs.io/en/latest/deployment/)
 - [Python API](https://qa-tool.readthedocs.io/en/latest/api/)

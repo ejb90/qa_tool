@@ -277,7 +277,7 @@ def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
         member_path = (destination / member.name).resolve()
         if destination not in member_path.parents and member_path != destination:
             raise ValueError(f"Unsafe path in archive: {member.name}")
-    tar.extractall(destination)
+    tar.extractall(destination, filter="data")
 
 
 def render_tar_artifact(path: Path) -> None:

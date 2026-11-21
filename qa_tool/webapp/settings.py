@@ -12,7 +12,7 @@ import streamlit as st
 
 SETTINGS_ENV_VAR = "QA_TOOL_SETTINGS"
 DEFAULT_SETTINGS_RESOURCE = "default_settings.toml"
-PACKAGE_NAME = __package__ or "qa_tool.webapp"
+PACKAGE_NAME = "qa_tool.webapp"
 
 
 def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -34,11 +34,8 @@ def load_toml_file(path: Path) -> dict[str, Any]:
 
 def load_packaged_defaults() -> dict[str, Any]:
     """Handle load packaged defaults."""
-    try:
-        settings_resource = files(PACKAGE_NAME).joinpath(DEFAULT_SETTINGS_RESOURCE)
-        settings_text = settings_resource.read_text(encoding="utf-8")
-    except ModuleNotFoundError:
-        settings_text = Path(__file__).with_name(DEFAULT_SETTINGS_RESOURCE).read_text(encoding="utf-8")
+    settings_resource = files(PACKAGE_NAME).joinpath(DEFAULT_SETTINGS_RESOURCE)
+    settings_text = settings_resource.read_text(encoding="utf-8")
     return tomllib.loads(settings_text)
 
 

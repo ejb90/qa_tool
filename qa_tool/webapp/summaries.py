@@ -8,11 +8,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-try:
-    from qa_tool.webapp.settings import configured_metrics
-except ModuleNotFoundError:
-    from settings import configured_metrics
-
+from qa_tool.webapp.settings import configured_metrics
 
 SUMMARY_AGGREGATIONS = {
     "mean": "Mean",
@@ -34,6 +30,7 @@ TAB_DESCRIPTIONS = {
     "compare_run": "Compare two individual runs directly.",
     "pie_charts": "Explore metric distributions visually.",
     "run_detail": "Open detailed time-series artifacts.",
+    "saved_comparisons": "Recover a saved comparison without recalculating it.",
 }
 
 

@@ -10,6 +10,7 @@ from qa_tool.core.comparisons import (
 from qa_tool.core.comparisons import (
     build_collection_metric_deltas as core_build_collection_metric_deltas,
 )
+from qa_tool.core.comparisons import build_run_scalar_comparison as core_build_run_scalar_comparison
 from qa_tool.core.comparisons import (
     build_version_comparison as core_build_version_comparison,
 )
@@ -86,24 +87,5 @@ def comparison_coverage(
 
 
 def build_run_scalar_comparison(top_run: pd.Series, bottom_run: pd.Series, metrics: list[str]) -> pd.DataFrame:
-    """Calculate scalar metric deltas and ratios for a selected pair of runs."""
-    rows = []
-    for metric in metrics:
-        top_value = top_run.get(metric)
-        bottom_value = bottom_run.get(metric)
-        if pd.isna(top_value) or pd.isna(bottom_value):
-            delta = None
-            ratio = None
-        else:
-            delta = bottom_value - top_value
-            ratio = None if top_value == 0 else bottom_value / top_value
-        rows.append(
-            {
-                "metric": metric,
-                "top": top_value,
-                "bottom": bottom_value,
-                "bottom_minus_top": delta,
-                "bottom_over_top": ratio,
-            }
-        )
-    return pd.DataFrame(rows)
+    """Delegate scalar run comparisons to the shared core package."""
+    return core_build_run_scalar_comparison(top_run, bottom_run, metrics)

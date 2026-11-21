@@ -7,21 +7,13 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from packaging.version import Version
 
-from qa_tool.core.queries import version_sort_key
-
-try:
-    from qa_tool.webapp.compare import build_collection_metric_deltas, build_version_comparison
-    from qa_tool.webapp.data import dataframe_to_csv
-    from qa_tool.webapp.exports import export_name
-    from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
-    from qa_tool.webapp.views.common import show_comparison_cdf_plot
-except ModuleNotFoundError:
-    from compare import build_collection_metric_deltas, build_version_comparison
-    from data import dataframe_to_csv
-    from exports import export_name
-    from styling import select_comparison_color_scheme, styled_comparison_table
-    from views.common import show_comparison_cdf_plot
+from qa_tool.webapp.compare import build_collection_metric_deltas, build_version_comparison
+from qa_tool.webapp.data import dataframe_to_csv
+from qa_tool.webapp.exports import export_name, show_comparison_archive_controls
+from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
+from qa_tool.webapp.views.common import show_comparison_cdf_plot
 
 
 def show_version_comparison(
@@ -35,7 +27,7 @@ def show_version_comparison(
         st.info("No runs match the current filters.")
         return
 
-    versions = sorted(filtered["version"].unique(), key=version_sort_key)
+    versions = sorted(filtered["version"].unique(), key=Version)
     if len(versions) < 2:
         st.info("At least two versions are needed for a comparison.")
         return
@@ -124,4 +116,15 @@ def show_version_comparison(
         mime="text/csv",
         key="compare_versions_mean_differences_download",
         use_container_width=True,
+    )
+    show_comparison_archive_controls(
+        settings=settings,
+        comparison_type="versions",
+        base_label=base_version,
+        test_label=new_version,
+        base_runs=base_runs,
+        test_runs=test_runs,
+        comparison=build_collection_metric_deltas(base_runs, base_version, test_runs, new_version, metrics),
+        metrics=metrics,
+        key="compare_versions_archive",
     )

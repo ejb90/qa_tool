@@ -170,6 +170,7 @@ venv.bak/
 
 # Local QA data and generated reports
 qa_tool_output/
+qa_tool_archive/
 *.duckdb
 .DS_Store
 

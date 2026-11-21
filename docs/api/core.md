@@ -12,6 +12,10 @@
 
 ::: qa_tool.core.comparisons
 
+## Comparison archives
+
+::: qa_tool.core.archive
+
 ## Plot builders
 
 ::: qa_tool.core.plots

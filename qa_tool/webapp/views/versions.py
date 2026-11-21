@@ -7,15 +7,11 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from packaging.version import Version
 
-from qa_tool.core.queries import aggregate_runs, model_mean_cdf_data, version_sort_key
-
-try:
-    from qa_tool.webapp.exports import show_export_download
-    from qa_tool.webapp.summaries import modified_filtered_runs, show_tab_summary
-except ModuleNotFoundError:
-    from exports import show_export_download
-    from summaries import modified_filtered_runs, show_tab_summary
+from qa_tool.core.queries import aggregate_runs, model_mean_cdf_data
+from qa_tool.webapp.exports import show_export_download
+from qa_tool.webapp.summaries import modified_filtered_runs, show_tab_summary
 
 
 def show_versions_tab(
@@ -41,7 +37,7 @@ def show_version_tables(
         return
 
     export_dataframes = {}
-    for version in sorted(filtered["version"].unique(), key=version_sort_key, reverse=True):
+    for version in sorted(filtered["version"].unique(), key=Version, reverse=True):
         version_runs = filtered[filtered["version"] == version]
         version_table = aggregate_runs(version_runs, ["model"], metrics)
         export_dataframes[f"table_version_{version}"] = version_table
@@ -76,7 +72,7 @@ def show_version_plots(
 
     selected_metric = st.selectbox("Plot metric", metrics)
 
-    version_order = sorted(filtered["version"].unique(), key=version_sort_key, reverse=True)
+    version_order = sorted(filtered["version"].unique(), key=Version, reverse=True)
     plot_data = (
         filtered.groupby(["version", "model"], as_index=False)
         .agg(
@@ -125,7 +121,7 @@ def show_version_cdf_plot(
         return {}
 
     st.subheader("Cumulative Distribution")
-    versions = sorted(filtered["version"].unique(), key=version_sort_key, reverse=True)
+    versions = sorted(filtered["version"].unique(), key=Version, reverse=True)
     selected_version = st.selectbox("CDF version", versions)
     selected_metric = st.selectbox("CDF metric", metrics)
     version_runs = filtered[filtered["version"] == selected_version]

@@ -9,6 +9,7 @@ from typing import Literal, TextIO
 import pandas as pd
 from plotly.graph_objects import Figure
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 OutputFormat = Literal["html", "png", "csv", "parquet"]
@@ -86,6 +87,20 @@ def write_plot(
             ) from error
         else:
             paths.append(path)
+    output_console = Console(file=stderr) if stderr is not None else Console(stderr=True)
     if stderr is not None:
-        print(f"Wrote artifacts: {', '.join(str(path) for path in paths)}", file=stderr)
+        output_console.print("[bold cyan]Wrote files:[/bold cyan]")
+        for path in paths:
+            output_console.print(f"  [dim]{escape(str(path))}[/dim]", soft_wrap=True)
+    elif len(paths) == 1:
+        output_console.print(
+            f"[bold green]✓[/bold green] Wrote [cyan]{escape(str(paths[0]))}[/cyan]",
+            soft_wrap=True,
+        )
+    else:
+        output_console.print(
+            f"[bold green]✓[/bold green] Wrote [cyan]{len(paths)} files[/cyan] to "
+            f"[cyan]{escape(str(output_dir))}[/cyan]",
+            soft_wrap=True,
+        )
     return paths

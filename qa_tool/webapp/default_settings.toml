@@ -86,9 +86,14 @@ compare_collection = true
 compare_run = true
 pie_charts = true
 run_detail = true
+saved_comparisons = true
 
 [plots]
 height = 520
+
+[archive]
+save_path = "qa_tool_archive"
+search_paths = ["qa_tool_archive"]
 
 [comparison.color_bounds]
 # Optional fixed percentage-point bounds for coloured comparison cells.

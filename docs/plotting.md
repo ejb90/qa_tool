@@ -1,6 +1,6 @@
 # Plots and exports
 
-QA Tool uses Plotly for both the web application and command-line figures. The web application displays figures interactively; the CLI can save each figure together with the data and aggregate table used to create it.
+QA Tool uses Plotly for both the web application and command-line figures. The web application displays figures interactively; CLI report commands can save each figure together with the data and aggregate table used to create it. Comparison commands instead create a complete [comparison archive](comparison-archives.md).
 
 ## Available plots
 
@@ -14,11 +14,11 @@ QA Tool uses Plotly for both the web application and command-line figures. The w
 | Pie chart | Run count or summed metric grouped by model or version. |
 | Run detail | Parquet time-series plots in the web application. |
 
-Use `--metric NAME` to select one numeric database column. Without it, most CLI commands produce a report for every numeric metric. The `pie` command additionally creates a run-count plot when no metric is supplied.
+Use `--metric NAME` to select one numeric database column. Without it, most CLI commands produce a report for every numeric metric. `report breakdown` additionally creates a run-count plot when no metric is supplied.
 
 ## Output formats
 
-The CLI accepts repeatable `--format` options:
+The `report models`, `report versions`, and `report breakdown` commands accept repeatable `--format` options:
 
 | Format | Output | Base install |
 | --- | --- | --- |
@@ -37,13 +37,13 @@ Examples:
 
 ```bash
 # Interactive plot and portable tables
-qa-tool model h2 --metric density --format html --format csv
+qa-tool report models h2 --metric density --format html --format csv
 
 # Data only
-qa-tool version v1.0.0 v2.0.0 --format csv --format parquet
+qa-tool report versions v1.0.0 v2.0.0 --format csv --format parquet
 
 # Static image plus the displayed table
-qa-tool pie --slice-by model --metric density --format png --format csv
+qa-tool report breakdown --by model --metric density --format png --format csv
 ```
 
 ## File layout
@@ -62,10 +62,10 @@ qa_tool_output/
 
 The un-suffixed CSV or Parquet file contains the figure's source rows. The `_table` file contains the aggregate values displayed in the terminal.
 
-Use top-level `--verbose` to print generated paths:
+Reports always print either the generated filename or a concise file-count and destination summary. Use the top-level `--verbose` option to list every generated path:
 
 ```bash
-qa-tool --verbose model h2 --metric density
+qa-tool --verbose report models h2 --metric density
 ```
 
 ## Enable PNG output
@@ -83,3 +83,5 @@ Kaleido requires a compatible Chrome or Chromium browser. If the extra is missin
 ## Web plots
 
 The web application does not require Kaleido because Streamlit renders Plotly figures interactively. Plot height is configured through `[plots].height`; comparison-table colour limits are controlled through `[comparison.color_bounds]`. See [Configuration](configuration.md).
+
+Saved comparison reports embed Plotly directly in `report.html`, making those reports self-contained and usable offline. They always include CSV and Parquet result data plus the full input rows; `--format` does not apply to comparison snapshots.

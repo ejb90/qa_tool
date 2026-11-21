@@ -13,6 +13,7 @@ QA Tool is a small system for collecting, browsing, comparing, and exporting qua
 | Add a new run and refresh the overview summary | [Ingestion](ingestion.md) |
 | Install optional PNG or documentation support | [Installation](installation.md) |
 | Choose plot and export formats | [Plots and exports](plotting.md) |
+| Preserve, verify, or recover a comparison | [Comparison archives](comparison-archives.md) |
 
 ## Key ideas
 
@@ -30,9 +31,9 @@ metadata.json + artifact directory
 qa-tool ingest
         │
         ▼
-runs.duckdb  ──────────► Streamlit dashboard
+runs.duckdb  ──────────► Streamlit dashboard ──► comparison archive
         │
-        └──────────────► qa-tool reports and export files
+        └──────────────► qa-tool reports / comparisons ──► comparison archive
 ```
 
 Start with [Getting started](getting-started.md), then use the [Configuration](configuration.md) guide to adapt paths and views to your data.

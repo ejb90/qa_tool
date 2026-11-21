@@ -8,24 +8,12 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from packaging.version import Version
 
-from qa_tool.core.queries import (
-    load_runs as core_load_runs,
-)
-from qa_tool.core.queries import (
-    metric_columns as core_metric_columns,
-)
-from qa_tool.core.queries import (
-    normalize_run_columns as core_normalize_run_columns,
-)
-
-try:
-    from qa_tool.webapp.settings import configured_metrics
-except ModuleNotFoundError:
-    from settings import configured_metrics
-
-
-METRIC_EXCLUDE_COLUMNS = {"uid", "name", "model", "version", "date"}
+from qa_tool.core.queries import load_runs as core_load_runs
+from qa_tool.core.queries import metric_columns as core_metric_columns
+from qa_tool.core.queries import normalize_run_columns as core_normalize_run_columns
+from qa_tool.webapp.settings import configured_metrics
 
 
 def normalize_run_columns(
@@ -101,8 +89,8 @@ def filter_runs(
         )
         versions = st.multiselect(
             "Versions",
-            sorted(runs["version"].unique()),
-            default=sorted(runs["version"].unique()),
+            sorted(runs["version"].unique(), key=Version),
+            default=sorted(runs["version"].unique(), key=Version),
         )
         selected_metrics = st.multiselect(
             "Table metrics",

@@ -9,11 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 from qa_tool.core.queries import model_mean_cdf_data
-
-try:
-    from qa_tool.webapp.styling import styled_comparison_table
-except ModuleNotFoundError:
-    from styling import styled_comparison_table
+from qa_tool.webapp.styling import styled_comparison_table
 
 
 def empirical_cdf(values: pd.Series) -> pd.DataFrame:

@@ -7,16 +7,11 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from packaging.version import Version
 
-from qa_tool.core.queries import aggregate_runs, version_sort_key
-
-try:
-    from qa_tool.webapp.exports import show_export_download
-    from qa_tool.webapp.summaries import modified_filtered_runs, show_tab_summary
-
-except ModuleNotFoundError:
-    from exports import show_export_download
-    from summaries import modified_filtered_runs, show_tab_summary
+from qa_tool.core.queries import aggregate_runs
+from qa_tool.webapp.exports import show_export_download
+from qa_tool.webapp.summaries import modified_filtered_runs, show_tab_summary
 
 
 def show_models_tab(
@@ -73,7 +68,7 @@ def show_model_version_plot(
     selected_metric = st.selectbox("Model plot metric", metrics)
     model_data = filtered[filtered["model"] == selected_model]
 
-    version_order = sorted(model_data["version"].unique(), key=version_sort_key)
+    version_order = sorted(model_data["version"].unique(), key=Version)
     plot_data = (
         model_data.groupby("version", as_index=False)
         .agg(

@@ -10,18 +10,11 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-try:
-    from qa_tool.webapp.compare import build_collection_comparison, build_collection_metric_deltas
-    from qa_tool.webapp.data import dataframe_to_csv
-    from qa_tool.webapp.exports import export_name
-    from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
-    from qa_tool.webapp.views.common import show_comparison_cdf_plot
-except ModuleNotFoundError:
-    from compare import build_collection_comparison, build_collection_metric_deltas
-    from data import dataframe_to_csv
-    from exports import export_name
-    from styling import select_comparison_color_scheme, styled_comparison_table
-    from views.common import show_comparison_cdf_plot
+from qa_tool.webapp.compare import build_collection_comparison, build_collection_metric_deltas
+from qa_tool.webapp.data import dataframe_to_csv
+from qa_tool.webapp.exports import export_name, show_comparison_archive_controls
+from qa_tool.webapp.styling import select_comparison_color_scheme, styled_comparison_table
+from qa_tool.webapp.views.common import show_comparison_cdf_plot
 
 
 def collection_parameter_columns(
@@ -321,6 +314,17 @@ def show_collection_comparison_result(
         mime="text/csv",
         key="compare_collection_mean_differences_download",
         use_container_width=True,
+    )
+    show_comparison_archive_controls(
+        settings=settings,
+        comparison_type="collections",
+        base_label=base_label,
+        test_label=test_label,
+        base_runs=base_runs,
+        test_runs=test_runs,
+        comparison=build_collection_metric_deltas(base_runs, base_label, test_runs, test_label, metrics),
+        metrics=metrics,
+        key=f"{key_prefix}_archive",
     )
 
 

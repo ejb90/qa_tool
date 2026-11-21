@@ -9,20 +9,20 @@ The packaged defaults live in `qa_tool/webapp/default_settings.toml`. Supply an 
 === "Web-app command"
 
     ```bash
-    qa-tool webapp --settings settings.toml
+    qa-tool serve --settings settings.toml
     ```
 
 === "Environment variable"
 
     ```bash
     export QA_TOOL_SETTINGS=/path/to/settings.toml
-    qa-tool webapp
+    qa-tool serve
     ```
 
 === "CLI command"
 
     ```bash
-    qa-tool model h2 --settings settings.toml
+    qa-tool report models h2 --settings settings.toml
     ```
 
 For the web app, an explicit `--settings` path takes precedence over `QA_TOOL_SETTINGS`. The CLI accepts `--settings` directly and does not read that environment variable. A CLI `--database` argument overrides the database path loaded from settings.
@@ -52,6 +52,10 @@ run_detail = false
 [plots]
 height = 600
 
+[archive]
+save_path = "./qa_tool_archive"
+search_paths = ["./qa_tool_archive", "/shared/qa/comparisons"]
+
 [comparison.color_bounds]
 density = 0.1
 ```
@@ -73,6 +77,14 @@ Summary aggregations support `mean`, `min`, and `max`. Unknown metrics are ignor
 ### Comparison colours
 
 `[comparison.color_bounds]` sets a fixed symmetric colour bound in percentage points for a metric. Metrics without a configured value use automatic scaling.
+
+### Comparison archive
+
+`[archive].save_path` is the single destination for newly created snapshots. It defaults to `qa_tool_archive` relative to the process working directory. CLI comparison commands use the same setting and can override it with `--archive-dir`.
+
+`[archive].search_paths` is an ordered list of locations displayed by **Saved Comparisons** and searched by CLI archive commands. This allows, for example, new comparisons to be saved locally while both a local directory and a read-only shared filesystem are browsed. If the same snapshot exists in more than one location, the copy in the first search path is used.
+
+`save_path` must be writable wherever snapshots are created; entries in `search_paths` only need to be readable. Put important archives on persistent, backed-up storage and mount the required paths into containers separately from the artifact store. See [Comparison archives](comparison-archives.md).
 
 ## Ingestion settings
 

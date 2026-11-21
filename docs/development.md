@@ -56,6 +56,8 @@ uv run twine check dist/*
 uv run mkdocs build --strict
 ```
 
+The default test command measures statement and branch coverage across the complete `qa_tool` package, including the Streamlit application. The build fails below 80% total coverage. HTML detail is written to `htmlcov/`, while `coverage.xml` is available for CI integrations.
+
 ## Build documentation
 
 Preview the site locally:

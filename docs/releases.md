@@ -29,5 +29,6 @@ After publishing, verify the installed commands in a clean environment:
 uv tool install qa-tool
 qa-tool --help
 qa-tool ingest --help
-qa-tool webapp --help
+qa-tool serve --help
+qa-tool report --help
 ```

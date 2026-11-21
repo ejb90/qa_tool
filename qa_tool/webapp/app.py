@@ -37,6 +37,7 @@ from qa_tool.webapp.views import (  # noqa: E402
     show_models_tab,
     show_pie_charts,
     show_run_detail,
+    show_saved_comparisons,
     show_version_comparison,
     show_versions_tab,
 )
@@ -66,15 +67,7 @@ def main(settings_path: str | Path | None = None) -> None:
     st.title(page_title)
 
     db_path = Path(settings["database"]["path"])
-    if not db_path.exists():
-        st.error(f"Could not find {db_path}. Add a run with `qa-tool ingest ARTIFACT_DIR` first.")
-        return
-    if db_path.suffix != ".duckdb":
-        st.error("QA Tool requires a DuckDB database with a `.duckdb` extension.")
-        return
-
     show_intro(settings, db_path)
-    stored_summary = load_run_summary(str(db_path))
 
     configured_tabs = [
         ("overview", "Overview"),
@@ -89,21 +82,54 @@ def main(settings_path: str | Path | None = None) -> None:
         ("compare_run", "Compare Run"),
         ("pie_charts", "Pie Charts"),
         ("run_detail", "Run Detail"),
+        ("saved_comparisons", "Saved Comparisons"),
     ]
     enabled_tabs = [(key, label) for key, label in configured_tabs if settings["tabs"].get(key, True)]
     if not enabled_tabs:
         st.warning("No views are enabled in the settings.")
         return
+    tab_labels = dict(enabled_tabs)
+    requested_view = st.query_params.get("view")
+    requested_comparison = st.query_params.get("comparison")
+    previous_url_view = st.session_state.get("_qa_tool_url_view")
+    selected_tab = st.session_state.get("main_tabs")
+    if requested_view == previous_url_view and selected_tab in tab_labels.values():
+        default_tab = selected_tab
+    elif requested_view in tab_labels:
+        default_tab = tab_labels[requested_view]
+    elif requested_comparison and "saved_comparisons" in tab_labels:
+        default_tab = tab_labels["saved_comparisons"]
+    else:
+        default_tab = None
     tab_containers = st.tabs(
         [label for _, label in enabled_tabs],
+        default=default_tab,
         key="main_tabs",
         on_change="rerun",
     )
     open_tabs = [(key, label, tab) for (key, label), tab in zip(enabled_tabs, tab_containers, strict=True) if tab.open]
     active_key, _, active_tab = open_tabs[0] if open_tabs else (*enabled_tabs[0], tab_containers[0])
+    if st.query_params.get("view") != active_key:
+        st.query_params["view"] = active_key
+    st.session_state["_qa_tool_url_view"] = active_key
+    if active_key != "saved_comparisons" and requested_view == active_key and "comparison" in st.query_params:
+        del st.query_params["comparison"]
     enabled_tab_labels = [(key, label) for key, label in enabled_tabs if key != "overview"]
 
+    if active_key == "saved_comparisons":
+        with active_tab:
+            show_saved_comparisons(settings)
+        return
+
+    if not db_path.exists():
+        st.error(f"Could not find {db_path}. Add a run with `qa-tool ingest ARTIFACT_DIR` first.")
+        return
+    if db_path.suffix != ".duckdb":
+        st.error("QA Tool requires a DuckDB database with a `.duckdb` extension.")
+        return
+
     if active_key == "overview":
+        stored_summary = load_run_summary(str(db_path))
         with active_tab:
             if stored_summary is not None:
                 show_stored_summary(stored_summary)

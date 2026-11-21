@@ -6,11 +6,9 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from packaging.version import Version
 
-try:
-    from qa_tool.webapp.artifacts import run_display_name, run_option_match_index, show_run_artifacts
-except ModuleNotFoundError:
-    from artifacts import run_display_name, run_option_match_index, show_run_artifacts
+from qa_tool.webapp.artifacts import run_display_name, run_option_match_index, show_run_artifacts
 
 
 def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
@@ -19,7 +17,10 @@ def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
         st.info("No runs match the current filters.")
         return
 
-    run_options = filtered.sort_values(["model", "version", "name"]).reset_index(drop=True)
+    run_options = filtered.sort_values(
+        ["model", "version", "name"],
+        key=lambda column: column.map(Version) if column.name == "version" else column,
+    ).reset_index(drop=True)
     pasted_id = st.text_input("Paste run UID or name", value="")
     matched_index = run_option_match_index(run_options, pasted_id)
     if pasted_id and matched_index is None:

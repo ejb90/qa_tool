@@ -8,6 +8,7 @@ from typing import Literal
 
 import duckdb
 import pandas as pd
+from packaging.version import Version
 
 METRIC_EXCLUDE_COLUMNS = frozenset({"uid", "name", "model", "version", "date"})
 MatchMode = Literal["exact", "starts-with", "contains", "regex", "non-empty"]
@@ -68,21 +69,16 @@ def metric_columns(runs: pd.DataFrame) -> list[str]:
 
 def aggregate_runs(runs: pd.DataFrame, group_columns: list[str], metrics: list[str]) -> pd.DataFrame:
     """Aggregate run counts, date bounds, and metric means by the requested columns."""
-    return (
-        runs.groupby(group_columns, as_index=False)
-        .agg(
-            run_count=("uid", "count"),
-            first_run=("date", "min"),
-            last_run=("date", "max"),
-            **{f"mean_{metric}": (metric, "mean") for metric in metrics},
-        )
-        .sort_values(group_columns)
+    aggregated = runs.groupby(group_columns, as_index=False).agg(
+        run_count=("uid", "count"),
+        first_run=("date", "min"),
+        last_run=("date", "max"),
+        **{f"mean_{metric}": (metric, "mean") for metric in metrics},
     )
-
-
-def version_sort_key(version: str) -> tuple[int, ...]:
-    """Return a natural numeric sort key for versions such as ``v2.10.0``."""
-    return tuple(int(part) for part in str(version).removeprefix("v").split(".") if part.isdigit())
+    return aggregated.sort_values(
+        group_columns,
+        key=lambda column: column.map(Version) if column.name == "version" else column,
+    )
 
 
 def model_mean_cdf_data(runs: pd.DataFrame, metric: str, label: str | None = None) -> pd.DataFrame:
@@ -114,7 +110,7 @@ def select_collection(
         if len(values) != 2:
             raise ValueError("Datetime collections require exactly two values: start and end.")
         start, end = (pd.to_datetime(value) for value in values)
-        return runs[(series >= start) & (series < end + pd.Timedelta(days=1))].copy()
+        return runs[(series >= start) & (series < end + pd.Timedelta(1, unit="D"))].copy()
     if pd.api.types.is_bool_dtype(series):
         accepted = {value.lower() in {"1", "true", "yes", "on"} for value in values}
         return runs[series.isin(accepted)].copy()
