@@ -1,5 +1,7 @@
 # Examples
 
+Explore the current database in the [hosted Streamlit demo](https://apptool-kgot2gkatwwj5qzxn5esrm.streamlit.app/), or run the same example locally from `examples/runs.duckdb`.
+
 The `sample-run` directory contains the smallest useful ingestion example. From
 the repository root, ingest it into the default `runs.duckdb` database:
 
@@ -15,7 +17,7 @@ uv run qa-tool serve
 ```
 
 After starting the web application, open the Streamlit dashboard at
-<http://localhost:8501>.
+<http://localhost:8501>. When a root `runs.duckdb` does not exist in a repository checkout, the dashboard automatically opens `examples/runs.duckdb`. A root database created by ingestion always takes precedence.
 
 Copy the directory when experimenting with additional metadata fields or
 artifact files. QA Tool adds new scalar metadata fields to the DuckDB schema as

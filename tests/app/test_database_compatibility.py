@@ -10,6 +10,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from qa_tool.core.archive import create_comparison_archive
+from qa_tool.webapp.app import resolve_database_path
 from qa_tool.webapp.data import load_run_summary, load_runs
 from qa_tool.webapp.settings import load_settings
 
@@ -68,6 +69,24 @@ def run_app(monkeypatch: pytest.MonkeyPatch, settings_path: Path) -> AppTest:
     load_run_summary.clear()
     monkeypatch.setenv("QA_TOOL_SETTINGS", str(settings_path))
     return AppTest.from_file(APP_PATH).run(timeout=10)
+
+
+def test_default_database_falls_back_to_repository_example(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repository demos work without changing the installed default database setting."""
+    example_database = tmp_path / "examples" / "runs.duckdb"
+    example_database.parent.mkdir()
+    example_database.touch()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("qa_tool.webapp.app.EXAMPLE_DATABASE", example_database)
+
+    assert resolve_database_path("runs.duckdb") == example_database
+    live_database = tmp_path / "runs.duckdb"
+    live_database.touch()
+    assert resolve_database_path("runs.duckdb") == Path("runs.duckdb")
+    assert resolve_database_path("custom.duckdb") == Path("custom.duckdb")
 
 
 def test_app_loads_alias_columns_from_duckdb(

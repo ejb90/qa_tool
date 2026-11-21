@@ -13,6 +13,7 @@ import streamlit as st
 # directory containing the qa_tool package too, so direct file execution works
 # both from a repository checkout and from an installed distribution.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLE_DATABASE = PROJECT_ROOT / "examples" / "runs.duckdb"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -51,6 +52,14 @@ def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:
     return args.settings
 
 
+def resolve_database_path(configured_path: str | Path) -> Path:
+    """Use the repository example only when the default live database is absent."""
+    database_path = Path(configured_path)
+    if database_path == Path("runs.duckdb") and not database_path.exists() and EXAMPLE_DATABASE.exists():
+        return EXAMPLE_DATABASE
+    return database_path
+
+
 def main(settings_path: str | Path | None = None) -> None:
     """Handle main."""
     try:
@@ -66,7 +75,7 @@ def main(settings_path: str | Path | None = None) -> None:
     st.set_page_config(page_title=page_title, layout=settings["page"]["layout"])
     st.title(page_title)
 
-    db_path = Path(settings["database"]["path"])
+    db_path = resolve_database_path(settings["database"]["path"])
     show_intro(settings, db_path)
 
     configured_tabs = [
