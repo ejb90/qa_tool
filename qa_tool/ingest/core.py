@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,8 @@ NUMERIC_TYPE_PREFIXES = (
     "REAL",
 )
 
+TAR_ARCHIVE_SUFFIXES = (".tar", ".tar.gz", ".tgz")
+
 
 def quote_identifier(name: str) -> str:
     """Quote a DuckDB identifier from a configured or JSON-derived name."""
@@ -37,6 +40,68 @@ def normalise_json_value(value: object) -> object:
     if isinstance(value, dict | list):
         return json.dumps(value, sort_keys=True)
     return value
+
+
+def is_tar_archive(path: Path) -> bool:
+    """Return whether a path has a supported tar archive name."""
+    return path.name.lower().endswith(TAR_ARCHIVE_SUFFIXES)
+
+
+def archive_metadata_member(tar: tarfile.TarFile, metadata_path: str | Path | None) -> tarfile.TarInfo:
+    """Select one metadata JSON file from an open artifact archive."""
+    json_members = [member for member in tar.getmembers() if member.isfile() and member.name.lower().endswith(".json")]
+    if metadata_path is not None:
+        requested_name = Path(metadata_path).as_posix().removeprefix("./")
+        matches = [member for member in json_members if member.name.removeprefix("./") == requested_name]
+        if not matches:
+            raise ValueError(f"Metadata JSON was not found in archive: {requested_name}")
+        if len(matches) > 1:
+            raise ValueError(f"Archive contains duplicate metadata member: {requested_name}")
+        return matches[0]
+
+    metadata_members = [member for member in json_members if Path(member.name).name.lower() == "metadata.json"]
+    candidates = metadata_members or json_members
+    if not candidates:
+        raise ValueError("Archive does not contain a metadata JSON file")
+    if len(candidates) > 1:
+        names = ", ".join(member.name for member in candidates)
+        raise ValueError(
+            f"Archive contains multiple possible metadata JSON files; use --metadata to choose one: {names}"
+        )
+    return candidates[0]
+
+
+def read_archive_metadata(archive_path: Path, metadata_path: str | Path | None) -> dict[str, Any]:
+    """Read a metadata object directly from a tar archive without extracting it."""
+    try:
+        with tarfile.open(archive_path) as tar:
+            member = archive_metadata_member(tar, metadata_path)
+            metadata_file = tar.extractfile(member)
+            if metadata_file is None:
+                raise ValueError(f"Could not read metadata JSON from archive: {member.name}")
+            metadata = json.load(metadata_file)
+    except tarfile.TarError as error:
+        raise ValueError(f"Could not read tar archive: {archive_path}") from error
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Invalid metadata JSON in archive: {archive_path}") from error
+
+    if not isinstance(metadata, dict):
+        raise ValueError("Metadata JSON must contain an object at its top level")
+    return metadata
+
+
+def read_directory_metadata(artifact_path: Path, metadata_path: str | Path | None) -> dict[str, Any]:
+    """Read a metadata object associated with an artifact directory."""
+    json_path = Path(metadata_path) if metadata_path is not None else artifact_path / "metadata.json"
+    if not json_path.is_file():
+        raise ValueError(f"Metadata JSON does not exist: {json_path}")
+    try:
+        metadata = json.loads(json_path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Invalid metadata JSON: {json_path}") from error
+    if not isinstance(metadata, dict):
+        raise ValueError("Metadata JSON must contain an object at its top level")
+    return metadata
 
 
 def metadata_row(
@@ -137,20 +202,19 @@ def refresh_summary(
 
 def ingest_run(
     artifact_dir: str | Path,
-    metadata_path: str | Path,
+    metadata_path: str | Path | None,
     settings: dict[str, Any],
 ) -> dict[str, Any]:
-    """Append one metadata JSON document and refresh DuckDB summaries."""
+    """Append metadata from an artifact directory or tar archive and refresh summaries."""
     artifact_path = Path(artifact_dir)
-    json_path = Path(metadata_path)
-    if not artifact_path.is_dir():
-        raise ValueError(f"Artifact directory does not exist: {artifact_path}")
-    if not json_path.is_file():
-        raise ValueError(f"Metadata JSON does not exist: {json_path}")
-
-    metadata = json.loads(json_path.read_text(encoding="utf-8"))
-    if not isinstance(metadata, dict):
-        raise ValueError("Metadata JSON must contain an object at its top level")
+    if artifact_path.is_dir():
+        metadata = read_directory_metadata(artifact_path, metadata_path)
+    elif artifact_path.is_file() and is_tar_archive(artifact_path):
+        metadata = read_archive_metadata(artifact_path, metadata_path)
+    elif artifact_path.is_file():
+        raise ValueError(f"Artifact file must be a .tar, .tar.gz, or .tgz archive: {artifact_path}")
+    else:
+        raise ValueError(f"Artifact path does not exist: {artifact_path}")
 
     row = metadata_row(artifact_path, metadata, settings)
     database_settings = settings["database"]

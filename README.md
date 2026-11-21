@@ -10,7 +10,7 @@ QA Tool collects run metadata in DuckDB and exposes it through a Streamlit dashb
 
 ## Capabilities
 
-- ingest JSON metadata into an evolving DuckDB schema
+- ingest JSON metadata from artifact directories or tar archives into an evolving DuckDB schema
 - browse, filter, and download run data in Streamlit
 - compare versions, models, arbitrary collections, or individual runs
 - create Plotly trends, CDFs, difference charts, and donut charts

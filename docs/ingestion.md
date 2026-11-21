@@ -1,6 +1,6 @@
 # Data ingestion
 
-`qa-tool ingest` converts one JSON metadata object and its artifact directory into a row in DuckDB. It creates the database on first use, evolves the `runs` schema when new keys appear, records the artifact path, and rebuilds `run_summary` after every insertion.
+`qa-tool ingest` converts one JSON metadata object and its artifact location into a row in DuckDB. The artifact can be a directory or a `.tar`, `.tar.gz`, or `.tgz` archive. Ingestion creates the database on first use, evolves the `runs` schema when new keys appear, records the artifact path, and rebuilds `run_summary` after every insertion.
 
 ## Ingest one run
 
@@ -33,6 +33,24 @@ qa-tool ingest store/my-run --database results/experiment.duckdb
 ```
 
 Parent directories and the `.duckdb` file are created automatically.
+
+## Ingest a tar archive
+
+Pass an archive in place of the artifact directory:
+
+```bash
+qa-tool ingest results/my-run.tar.gz
+```
+
+The archive can contain nested directories. QA Tool uses its sole JSON member as metadata, or prefers a file named `metadata.json` when the archive also contains other JSON artifacts. The Parquet files do not need to be named or referenced by the metadata; recording the archive as the run's artifact location associates every file in it with that run.
+
+If an archive has several possible metadata JSON files and none is uniquely named `metadata.json`, select the member explicitly using its archive-relative path:
+
+```bash
+qa-tool ingest results/my-run.tar.gz --metadata output/run.json
+```
+
+Ambiguous archives are rejected rather than choosing a JSON file arbitrarily. Metadata is read directly from the archive without extracting it during ingestion. The dashboard safely extracts the archive to a temporary location when you inspect the run's artifacts.
 
 ## Metadata format
 
@@ -121,7 +139,7 @@ The first row creates the `runs` table. For later rows, ingestion:
 
 ## Ingest several directories
 
-The command accepts one artifact directory at a time. A shell loop can ingest an existing store:
+The command accepts one artifact directory or tar archive at a time. A shell loop can ingest an existing store:
 
 ```bash
 for run_dir in store/*; do

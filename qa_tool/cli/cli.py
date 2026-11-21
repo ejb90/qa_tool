@@ -127,23 +127,26 @@ def cli(*, verbose: bool) -> None:
 
 
 @cli.command()
-@click.argument("artifact_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
-@click.option("--metadata", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("artifact_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--metadata",
+    type=click.Path(path_type=Path),
+    help="Metadata JSON path, or member path when ingesting an archive.",
+)
 @click.option("--settings", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--database", type=click.Path(path_type=Path), help="Override the ingestion database path.")
 @handle_errors
-def ingest(artifact_dir: Path, metadata: Path | None, settings: Path | None, database: Path | None) -> None:
-    """Append one artifact directory's metadata to DuckDB."""
-    metadata_path = metadata or artifact_dir / "metadata.json"
+def ingest(artifact_path: Path, metadata: Path | None, settings: Path | None, database: Path | None) -> None:
+    """Append metadata from an artifact directory or tar archive to DuckDB."""
     ingestion_settings = load_ingest_settings(settings)
     if database is not None:
         ingestion_settings["database"]["path"] = str(database)
-    result = ingest_run(artifact_dir, metadata_path, ingestion_settings)
+    result = ingest_run(artifact_path, metadata, ingestion_settings)
 
     details = Table.grid(padding=(0, 2))
     details.add_column(style="bold cyan", justify="right")
     details.add_column()
-    details.add_row("Artifact", str(artifact_dir))
+    details.add_row("Artifact", str(artifact_path))
     details.add_row("Database", str(result["database"]))
     details.add_row("Runs table", str(result["runs_table"]))
     details.add_row("Summary table", str(result["summary_table"]))

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import tarfile
+from io import BytesIO
 from pathlib import Path
 
 import duckdb
@@ -27,6 +29,17 @@ def temporary_settings(tmp_path: Path) -> dict[str, object]:
     settings["database"]["path"] = str(tmp_path / "runs.duckdb")
     settings["summary"]["mean_columns"] = ["score", "new_metric"]
     return settings
+
+
+def write_archive(tmp_path: Path, name: str, members: dict[str, bytes]) -> Path:
+    """Create a compressed tar artifact with the requested member contents."""
+    archive_path = tmp_path / name
+    with tarfile.open(archive_path, "w:gz") as archive:
+        for member_name, contents in members.items():
+            member = tarfile.TarInfo(member_name)
+            member.size = len(contents)
+            archive.addfile(member, BytesIO(contents))
+    return archive_path
 
 
 def test_ingest_creates_runs_and_summary_tables(tmp_path: Path) -> None:
@@ -115,6 +128,69 @@ def test_ingest_appends_new_columns_and_refreshes_summary(tmp_path: Path) -> Non
         ).fetchone() == (2, 2, 1, 2.5, 7.0)
 
 
+def test_ingest_discovers_json_and_associates_tar_archive(tmp_path: Path) -> None:
+    """A sole JSON file supplies metadata while sibling Parquet needs no JSON pointer."""
+    archive_path = write_archive(
+        tmp_path,
+        "run-archive.tar.gz",
+        {
+            "results/run.json": json.dumps({"uid": "archive-1", "model": "device-a", "score": 2.5}).encode(),
+            "results/history.parquet": b"parquet-placeholder",
+        },
+    )
+    settings = temporary_settings(tmp_path)
+
+    result = ingest_run(archive_path, None, settings)
+
+    with duckdb.connect(result["database"], read_only=True) as database:
+        assert database.execute("SELECT uid, model, score, artifact FROM runs").fetchone() == (
+            "archive-1",
+            "device-a",
+            2.5,
+            str(archive_path),
+        )
+
+
+def test_archive_metadata_override_resolves_member_path(tmp_path: Path) -> None:
+    """An archive-relative --metadata value selects one JSON from several."""
+    archive_path = write_archive(
+        tmp_path,
+        "several-json.tgz",
+        {
+            "first.json": json.dumps({"uid": "first"}).encode(),
+            "nested/selected.json": json.dumps({"uid": "selected"}).encode(),
+            "nested/data.parquet": b"parquet-placeholder",
+        },
+    )
+    settings = temporary_settings(tmp_path)
+
+    with pytest.raises(ValueError, match="multiple possible metadata JSON files"):
+        ingest_run(archive_path, None, settings)
+
+    result = ingest_run(archive_path, "nested/selected.json", settings)
+    with duckdb.connect(result["database"], read_only=True) as database:
+        assert database.execute("SELECT uid, artifact FROM runs").fetchone() == ("selected", str(archive_path))
+
+
+def test_archive_prefers_metadata_json_over_other_json(tmp_path: Path) -> None:
+    """A conventionally named metadata file wins over unrelated JSON artifacts."""
+    archive_path = write_archive(
+        tmp_path,
+        "metadata-name.tar.gz",
+        {
+            "run/metadata.json": json.dumps({"uid": "metadata-run"}).encode(),
+            "run/diagnostics.json": b"[]",
+            "run/data.parquet": b"parquet-placeholder",
+        },
+    )
+    settings = temporary_settings(tmp_path)
+
+    result = ingest_run(archive_path, None, settings)
+
+    with duckdb.connect(result["database"], read_only=True) as database:
+        assert database.execute("SELECT uid FROM runs").fetchone() == ("metadata-run",)
+
+
 def test_toml_settings_select_and_rename_json_keys(tmp_path: Path) -> None:
     """TOML inclusion and rename rules control the stored runs schema."""
     artifact_dir = write_artifact(
@@ -197,7 +273,7 @@ def test_ingest_rejects_invalid_paths_and_metadata(tmp_path: Path) -> None:
     """Input validation reports missing paths and non-object JSON documents."""
     settings = temporary_settings(tmp_path)
     missing_artifact = tmp_path / "missing"
-    with pytest.raises(ValueError, match="Artifact directory does not exist"):
+    with pytest.raises(ValueError, match="Artifact path does not exist"):
         ingest_run(missing_artifact, missing_artifact / "metadata.json", settings)
 
     artifact_dir = tmp_path / "empty-artifact"
@@ -209,6 +285,10 @@ def test_ingest_rejects_invalid_paths_and_metadata(tmp_path: Path) -> None:
     metadata_path.write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="must contain an object"):
         ingest_run(artifact_dir, metadata_path, settings)
+
+    archive_path = write_archive(tmp_path, "no-json.tar.gz", {"data.parquet": b"parquet-placeholder"})
+    with pytest.raises(ValueError, match="does not contain a metadata JSON"):
+        ingest_run(archive_path, None, settings)
 
 
 def test_ingest_rejects_missing_renamed_json_key(tmp_path: Path) -> None:
@@ -262,6 +342,29 @@ def test_unified_cli_ingests_run(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "Ingested run" in capsys.readouterr().out
     with duckdb.connect(str(database_path), read_only=True) as database:
         assert database.execute("SELECT uid, score FROM runs").fetchone() == ("run-unified", 8.0)
+
+
+def test_unified_cli_ingests_tar_gz(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The CLI accepts a tar.gz artifact and discovers nested metadata.json."""
+    archive_path = write_archive(
+        tmp_path,
+        "cli-run.tar.gz",
+        {
+            "cli-run/metadata.json": json.dumps({"uid": "archive-cli", "score": 9.0}).encode(),
+            "cli-run/data.parquet": b"parquet-placeholder",
+        },
+    )
+    database_path = tmp_path / "archive-cli.duckdb"
+
+    qa_tool_main(["ingest", str(archive_path), "--database", str(database_path)])
+
+    assert "Ingested run" in capsys.readouterr().out
+    with duckdb.connect(str(database_path), read_only=True) as database:
+        assert database.execute("SELECT uid, score, artifact FROM runs").fetchone() == (
+            "archive-cli",
+            9.0,
+            str(archive_path),
+        )
 
 
 def test_cli_database_option_overrides_toml_destination(
