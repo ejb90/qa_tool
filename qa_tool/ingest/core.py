@@ -26,6 +26,20 @@ NUMERIC_TYPE_PREFIXES = (
     "REAL",
 )
 
+INTEGER_TYPE_PREFIXES = (
+    "TINYINT",
+    "SMALLINT",
+    "INTEGER",
+    "BIGINT",
+    "HUGEINT",
+    "UTINYINT",
+    "USMALLINT",
+    "UINTEGER",
+    "UBIGINT",
+)
+
+FLOAT_TYPE_PREFIXES = ("FLOAT", "DOUBLE", "DECIMAL", "REAL")
+
 TAR_ARCHIVE_SUFFIXES = (".tar", ".tar.gz", ".tgz")
 
 
@@ -116,11 +130,16 @@ def metadata_row(
     rename = input_settings.get("rename", {})
 
     selected_keys = include or list(metadata)
-    row = {key: normalise_json_value(metadata[key]) for key in selected_keys if key in metadata and key not in exclude}
+    row = {
+        key: normalise_json_value(metadata[key])
+        for key in selected_keys
+        if key in metadata and key not in exclude and metadata[key] is not None
+    }
     for output_column, source_key in rename.items():
         if source_key not in metadata:
             raise ValueError(f"Configured JSON key `{source_key}` was not found")
-        row[output_column] = normalise_json_value(metadata[source_key])
+        if metadata[source_key] is not None:
+            row[output_column] = normalise_json_value(metadata[source_key])
         if output_column != source_key:
             row.pop(source_key, None)
 
@@ -146,6 +165,40 @@ def table_columns(connection: duckdb.DuckDBPyConnection, table_name: str) -> dic
     }
 
 
+def type_starts_with(type_name: str, prefixes: tuple[str, ...]) -> bool:
+    """Return whether a DuckDB type belongs to a family of type prefixes."""
+    return type_name.upper().startswith(prefixes)
+
+
+def reconcile_column_type(
+    connection: duckdb.DuckDBPyConnection,
+    table_name: str,
+    column: str,
+    existing_type: str,
+    incoming_type: str,
+) -> None:
+    """Widen compatible numeric columns and reject incompatible type changes."""
+    existing = existing_type.upper()
+    incoming = incoming_type.upper()
+    if existing == incoming:
+        return
+
+    existing_is_integer = type_starts_with(existing, INTEGER_TYPE_PREFIXES)
+    incoming_is_integer = type_starts_with(incoming, INTEGER_TYPE_PREFIXES)
+    existing_is_float = type_starts_with(existing, FLOAT_TYPE_PREFIXES)
+    incoming_is_float = type_starts_with(incoming, FLOAT_TYPE_PREFIXES)
+
+    if existing_is_integer and incoming_is_float:
+        connection.execute(
+            f"ALTER TABLE {quote_identifier(table_name)} ALTER COLUMN {quote_identifier(column)} TYPE DOUBLE"
+        )
+        return
+    if (existing_is_integer or existing_is_float) and (incoming_is_integer or incoming_is_float):
+        return
+
+    raise ValueError(f"Column `{column}` has incompatible types: existing {existing_type}, incoming {incoming_type}")
+
+
 def append_row(
     connection: duckdb.DuckDBPyConnection,
     table_name: str,
@@ -165,6 +218,14 @@ def append_row(
             if column not in existing_columns:
                 connection.execute(
                     f"ALTER TABLE {quote_identifier(table_name)} ADD COLUMN {quote_identifier(column)} {type_name}"
+                )
+            else:
+                reconcile_column_type(
+                    connection,
+                    table_name,
+                    column,
+                    existing_columns[column],
+                    type_name,
                 )
 
         columns = ", ".join(quote_identifier(column) for column in row)

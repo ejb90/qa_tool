@@ -128,6 +128,80 @@ def test_ingest_appends_new_columns_and_refreshes_summary(tmp_path: Path) -> Non
         ).fetchone() == (2, 2, 1, 2.5, 7.0)
 
 
+def test_null_does_not_fix_column_type_before_first_value(tmp_path: Path) -> None:
+    """A null metadata value leaves type inference to the first non-null value."""
+    settings = temporary_settings(tmp_path)
+    first_artifact = write_artifact(
+        tmp_path,
+        "null-score",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "score": None},
+    )
+    second_artifact = write_artifact(
+        tmp_path,
+        "float-score",
+        {"uid": "run-2", "model": "device-a", "version": "v1", "score": 1.5},
+    )
+
+    ingest_run(first_artifact, None, settings)
+    ingest_run(second_artifact, None, settings)
+
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        column_types = {name: type_name for name, type_name, *_ in database.execute("DESCRIBE runs").fetchall()}
+        assert column_types["score"] == "DOUBLE"
+        assert database.execute("SELECT uid, score FROM runs ORDER BY uid").fetchall() == [
+            ("run-1", None),
+            ("run-2", 1.5),
+        ]
+
+
+def test_integer_metric_widens_before_float_insert(tmp_path: Path) -> None:
+    """A later floating-point value widens an integer metric without rounding it."""
+    settings = temporary_settings(tmp_path)
+    integer_artifact = write_artifact(
+        tmp_path,
+        "integer-score",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "score": 1},
+    )
+    float_artifact = write_artifact(
+        tmp_path,
+        "float-score",
+        {"uid": "run-2", "model": "device-a", "version": "v1", "score": 1.5},
+    )
+
+    ingest_run(integer_artifact, None, settings)
+    ingest_run(float_artifact, None, settings)
+
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        column_types = {name: type_name for name, type_name, *_ in database.execute("DESCRIBE runs").fetchall()}
+        assert column_types["score"] == "DOUBLE"
+        assert database.execute("SELECT uid, score FROM runs ORDER BY uid").fetchall() == [
+            ("run-1", 1.0),
+            ("run-2", 1.5),
+        ]
+
+
+def test_ingest_rejects_incompatible_column_type_change(tmp_path: Path) -> None:
+    """A metric cannot silently change from numeric data to text."""
+    settings = temporary_settings(tmp_path)
+    numeric_artifact = write_artifact(
+        tmp_path,
+        "numeric-score",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "score": 1.5},
+    )
+    text_artifact = write_artifact(
+        tmp_path,
+        "text-score",
+        {"uid": "run-2", "model": "device-a", "version": "v1", "score": "invalid"},
+    )
+
+    ingest_run(numeric_artifact, None, settings)
+    with pytest.raises(ValueError, match="Column `score` has incompatible types"):
+        ingest_run(text_artifact, None, settings)
+
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        assert database.execute("SELECT uid, score FROM runs").fetchall() == [("run-1", 1.5)]
+
+
 def test_ingest_discovers_json_and_associates_tar_archive(tmp_path: Path) -> None:
     """A sole JSON file supplies metadata while sibling Parquet needs no JSON pointer."""
     archive_path = write_archive(

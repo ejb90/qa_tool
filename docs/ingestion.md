@@ -73,7 +73,7 @@ The JSON document must contain an object at its top level:
 }
 ```
 
-Top-level scalar values are stored using DuckDB-compatible native types inferred from the first row. Dictionaries and lists are serialized as JSON text. The ingestion command adds its own `artifact` value containing the artifact-directory path supplied on the command line.
+Top-level scalar values are stored using DuckDB-compatible native types inferred from the first non-null value for each field. A JSON `null` is treated as an absent value: it does not create or constrain a column, and becomes SQL `NULL` if a later run supplies that field. Dictionaries and lists are serialized as JSON text. The ingestion command adds its own `artifact` value containing the artifact-directory path supplied on the command line.
 
 The analysis interfaces expect these conventional fields:
 
@@ -135,7 +135,7 @@ The first row creates the `runs` table. For later rows, ingestion:
 
 !!! warning "Type changes"
 
-    Schema evolution adds columns; it does not migrate an existing column to a new type. Keep the type of a metadata key consistent across runs.
+    Schema evolution adds columns and safely widens integer columns to `DOUBLE` when a later run supplies a floating-point value. Other incompatible type changes are rejected rather than silently converting data. Keep the type of a metadata key consistent across runs.
 
 ## Ingest several directories
 
