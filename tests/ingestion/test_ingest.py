@@ -64,6 +64,15 @@ def test_ingest_creates_runs_and_summary_tables(tmp_path: Path) -> None:
 
     assert database_path.is_file()
     assert database_path.stat().st_size > 0
+    assert result["inferred_types"] == {
+        "uid": "VARCHAR",
+        "model": "VARCHAR",
+        "version": "VARCHAR",
+        "date": "VARCHAR",
+        "score": "DOUBLE",
+        "passed": "BOOLEAN",
+        "parameters": "VARCHAR",
+    }
 
     with duckdb.connect(str(database_path), read_only=True) as database:
         run_columns = {column[0] for column in database.execute("DESCRIBE runs").fetchall()}
@@ -115,6 +124,7 @@ def test_ingest_appends_new_columns_and_refreshes_summary(tmp_path: Path) -> Non
 
     ingest_run(first_artifact, first_artifact / "metadata.json", settings)
     result = ingest_run(second_artifact, second_artifact / "metadata.json", settings)
+    assert result["inferred_types"] == {"new_metric": "DOUBLE"}
 
     with duckdb.connect(result["database"], read_only=True) as database:
         run_columns = [column[0] for column in database.execute("DESCRIBE runs").fetchall()]
@@ -490,7 +500,10 @@ def test_unified_cli_uses_default_metadata_location(
     )
     qa_tool_main(["ingest", str(artifact_dir), "--settings", str(settings_path)])
 
-    assert "Ingested" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Ingested" in output
+    assert "Inferred column types" in output
+    assert 'score = "DOUBLE"' in output
     with duckdb.connect(str(database_path), read_only=True) as database:
         assert database.execute("SELECT uid, score FROM runs").fetchone() == ("run-6", 6.0)
 
@@ -505,6 +518,35 @@ def test_unified_cli_ingests_run(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "Ingested run" in capsys.readouterr().out
     with duckdb.connect(str(database_path), read_only=True) as database:
         assert database.execute("SELECT uid, score FROM runs").fetchone() == ("run-unified", 8.0)
+
+
+def test_unified_cli_does_not_warn_for_fully_configured_types(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An authoritative schema avoids inference warnings."""
+    artifact_dir = write_artifact(tmp_path, "configured-run", {"uid": "run-configured", "score": 8.0})
+    database_path = tmp_path / "configured.duckdb"
+    settings_path = tmp_path / "configured.toml"
+    settings_path.write_text(
+        "\n".join(
+            [
+                "[database]",
+                f'path = "{database_path}"',
+                "",
+                "[input.types]",
+                'uid = "VARCHAR"',
+                'score = "DOUBLE"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    qa_tool_main(["ingest", str(artifact_dir), "--settings", str(settings_path)])
+
+    output = capsys.readouterr().out
+    assert "Ingested run" in output
+    assert "Inferred column types" not in output
 
 
 def test_unified_cli_ingests_tar_gz(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

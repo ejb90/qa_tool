@@ -264,8 +264,8 @@ def append_row(
     table_name: str,
     row: dict[str, Any],
     configured_types: dict[str, str] | None = None,
-) -> None:
-    """Validate and append a row, extending the runs table when needed."""
+) -> dict[str, str]:
+    """Validate and append a row, returning types inferred for new columns."""
     configured_types = configured_types or {}
     incoming = pd.DataFrame([row])
     connection.register("incoming_run", incoming)
@@ -277,6 +277,12 @@ def append_row(
         }
         for column, configured_type in configured_types.items():
             target_columns.setdefault(column, configured_type)
+
+        inferred_types = {
+            column: type_name
+            for column, type_name in target_columns.items()
+            if column not in existing_columns and column not in configured_types
+        }
 
         type_changes: dict[str, str] = {}
         for column, existing_type in existing_columns.items():
@@ -326,6 +332,7 @@ def append_row(
         columns = ", ".join(quote_identifier(column) for column in row)
         values = ", ".join(f"CAST({quote_identifier(column)} AS {target_columns[column]})" for column in row)
         connection.execute(f"INSERT INTO {quote_identifier(table_name)} ({columns}) SELECT {values} FROM incoming_run")
+        return inferred_types
     finally:
         connection.unregister("incoming_run")
 
@@ -374,14 +381,16 @@ def ingest_run(
         raise ValueError(f"Artifact path does not exist: {artifact_path}")
 
     row = metadata_row(artifact_path, metadata, settings)
-    column_types = configured_column_types(settings)
+    configured_types = configured_column_types(settings)
+    artifact_column = str(settings["input"].get("artifact_column", "artifact"))
+    column_types = {artifact_column: "VARCHAR", **configured_types}
     database_settings = settings["database"]
     database_path = Path(database_settings["path"])
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(database_path)) as connection:
         connection.execute("BEGIN TRANSACTION")
         try:
-            append_row(connection, str(database_settings["runs_table"]), row, column_types)
+            inferred_types = append_row(connection, str(database_settings["runs_table"]), row, column_types)
             refresh_summary(connection, settings)
         except Exception:
             connection.execute("ROLLBACK")
@@ -394,4 +403,5 @@ def ingest_run(
         "runs_table": database_settings["runs_table"],
         "summary_table": database_settings["summary_table"],
         "columns": list(row),
+        "inferred_types": inferred_types,
     }

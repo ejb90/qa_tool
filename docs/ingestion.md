@@ -127,7 +127,7 @@ qa-tool ingest store/my-run --settings ingest.toml
 
 An empty `include` list selects every top-level key. `exclude` removes selected keys. Each rename uses the output column on the left and source JSON key on the right.
 
-`[input.types]` optionally declares authoritative DuckDB types. Supported declarations are `BIGINT`, `BOOLEAN`, `DATE`, `DOUBLE`, `JSON`, `TIMESTAMP`, `TIMESTAMPTZ`, and `VARCHAR`. Declared columns are created even when their first value is `null`. Every non-null value is checked before the database schema is changed; incompatible values reject the complete ingestion. Undeclared fields continue to infer their type from their first non-null value.
+`[input.types]` optionally declares authoritative DuckDB types. Supported declarations are `BIGINT`, `BOOLEAN`, `DATE`, `DOUBLE`, `JSON`, `TIMESTAMP`, `TIMESTAMPTZ`, and `VARCHAR`. Declared columns are created even when their first value is `null`. Every non-null value is checked before the database schema is changed; incompatible values reject the complete ingestion. Undeclared fields continue to infer their type from their first non-null value. When a new type is inferred, the CLI prints a warning and ready-to-copy `[input.types]` entries; later rows using the already established type do not repeat that warning.
 
 ## Schema evolution
 

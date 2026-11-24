@@ -199,7 +199,20 @@ def ingest(artifact_path: Path, metadata: Path | None, settings: Path | None, da
     details.add_row("Runs table", str(result["runs_table"]))
     details.add_row("Summary table", str(result["summary_table"]))
     details.add_row("Stored columns", ", ".join(result["columns"]))
-    Console().print(Panel(details, title="[bold green]✓ Ingested run", border_style="green"))
+    console = Console()
+    console.print(Panel(details, title="[bold green]✓ Ingested run", border_style="green"))
+    inferred_types = result["inferred_types"]
+    if inferred_types:
+        suggestions = "\n".join(f'{column} = "{type_name}"' for column, type_name in inferred_types.items())
+        console.print(
+            Panel(
+                "New column types were inferred from their first non-null values. "
+                "Add these entries to `[input.types]` for an authoritative schema:\n\n"
+                f"{suggestions}",
+                title="[bold yellow]⚠ Inferred column types",
+                border_style="yellow",
+            )
+        )
 
 
 @cli.command("serve", context_settings={"ignore_unknown_options": True})
