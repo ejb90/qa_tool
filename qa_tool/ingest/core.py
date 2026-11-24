@@ -40,6 +40,17 @@ INTEGER_TYPE_PREFIXES = (
 
 FLOAT_TYPE_PREFIXES = ("FLOAT", "DOUBLE", "DECIMAL", "REAL")
 
+CONFIGURED_TYPE_ALIASES = {
+    "BIGINT": "BIGINT",
+    "BOOLEAN": "BOOLEAN",
+    "DATE": "DATE",
+    "DOUBLE": "DOUBLE",
+    "JSON": "JSON",
+    "TIMESTAMP": "TIMESTAMP",
+    "TIMESTAMPTZ": "TIMESTAMP WITH TIME ZONE",
+    "VARCHAR": "VARCHAR",
+}
+
 TAR_ARCHIVE_SUFFIXES = (".tar", ".tar.gz", ".tgz")
 
 
@@ -170,66 +181,151 @@ def type_starts_with(type_name: str, prefixes: tuple[str, ...]) -> bool:
     return type_name.upper().startswith(prefixes)
 
 
-def reconcile_column_type(
-    connection: duckdb.DuckDBPyConnection,
-    table_name: str,
+def configured_column_types(settings: dict[str, Any]) -> dict[str, str]:
+    """Return validated, canonical configured DuckDB column types."""
+    configured = settings["input"].get("types", {})
+    if not isinstance(configured, dict):
+        raise ValueError("Ingestion setting `input.types` must be a table")
+
+    validated: dict[str, str] = {}
+    for column, type_name in configured.items():
+        configured_name = str(type_name).upper()
+        if configured_name not in CONFIGURED_TYPE_ALIASES:
+            supported = ", ".join(sorted(CONFIGURED_TYPE_ALIASES))
+            raise ValueError(f"Unsupported configured type for `{column}`: {type_name}. Supported types: {supported}")
+        validated[str(column)] = CONFIGURED_TYPE_ALIASES[configured_name]
+    return validated
+
+
+def reconciled_column_type(
     column: str,
     existing_type: str,
     incoming_type: str,
-) -> None:
-    """Widen compatible numeric columns and reject incompatible type changes."""
+    configured_type: str | None = None,
+) -> str:
+    """Return a compatible target type or reject an incompatible change."""
     existing = existing_type.upper()
     incoming = incoming_type.upper()
-    if existing == incoming:
-        return
+    target = configured_type or incoming
+
+    if configured_type is not None and existing != configured_type:
+        if type_starts_with(existing, INTEGER_TYPE_PREFIXES) and configured_type == "DOUBLE":
+            existing = "DOUBLE"
+        else:
+            raise ValueError(
+                f"Column `{column}` has type {existing_type}, but ingestion settings require {configured_type}"
+            )
 
     existing_is_integer = type_starts_with(existing, INTEGER_TYPE_PREFIXES)
-    incoming_is_integer = type_starts_with(incoming, INTEGER_TYPE_PREFIXES)
+    target_is_integer = type_starts_with(target, INTEGER_TYPE_PREFIXES)
     existing_is_float = type_starts_with(existing, FLOAT_TYPE_PREFIXES)
-    incoming_is_float = type_starts_with(incoming, FLOAT_TYPE_PREFIXES)
+    target_is_float = type_starts_with(target, FLOAT_TYPE_PREFIXES)
 
-    if existing_is_integer and incoming_is_float:
-        connection.execute(
-            f"ALTER TABLE {quote_identifier(table_name)} ALTER COLUMN {quote_identifier(column)} TYPE DOUBLE"
-        )
-        return
-    if (existing_is_integer or existing_is_float) and (incoming_is_integer or incoming_is_float):
-        return
+    if existing == target:
+        return existing
+    if existing_is_integer and target_is_float:
+        return "DOUBLE"
+    if (existing_is_integer or existing_is_float) and (target_is_integer or target_is_float):
+        return existing
 
     raise ValueError(f"Column `{column}` has incompatible types: existing {existing_type}, incoming {incoming_type}")
+
+
+def validate_incoming_type(
+    connection: duckdb.DuckDBPyConnection,
+    column: str,
+    incoming_type: str,
+    target_type: str,
+) -> None:
+    """Ensure an incoming non-null value can be stored without lossy coercion."""
+    incoming = incoming_type.upper()
+    target = target_type.upper()
+    incoming_is_integer = type_starts_with(incoming, INTEGER_TYPE_PREFIXES)
+    incoming_is_float = type_starts_with(incoming, FLOAT_TYPE_PREFIXES)
+    target_is_integer = type_starts_with(target, INTEGER_TYPE_PREFIXES)
+    target_is_float = type_starts_with(target, FLOAT_TYPE_PREFIXES)
+
+    compatible = incoming == target
+    compatible |= target_is_float and (incoming_is_integer or incoming_is_float)
+    compatible |= target_is_integer and incoming_is_integer
+    compatible |= target in {"DATE", "JSON", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE"} and incoming == "VARCHAR"
+    if not compatible:
+        raise ValueError(f"Column `{column}` cannot be stored as {target_type}; incoming type is {incoming_type}")
+
+    cast_is_valid = connection.execute(
+        f"SELECT TRY_CAST({quote_identifier(column)} AS {target}) IS NOT NULL FROM incoming_run"
+    ).fetchone()
+    if not cast_is_valid or not cast_is_valid[0]:
+        raise ValueError(f"Column `{column}` contains a value that cannot be stored as {target_type}")
 
 
 def append_row(
     connection: duckdb.DuckDBPyConnection,
     table_name: str,
     row: dict[str, Any],
+    configured_types: dict[str, str] | None = None,
 ) -> None:
-    """Append a row, extending the runs table for newly discovered keys."""
+    """Validate and append a row, extending the runs table when needed."""
+    configured_types = configured_types or {}
     incoming = pd.DataFrame([row])
     connection.register("incoming_run", incoming)
     try:
-        if not table_exists(connection, table_name):
-            connection.execute(f"CREATE TABLE {quote_identifier(table_name)} AS SELECT * FROM incoming_run")
-            return
-
-        existing_columns = table_columns(connection, table_name)
         incoming_columns = table_columns(connection, "incoming_run")
-        for column, type_name in incoming_columns.items():
-            if column not in existing_columns:
-                connection.execute(
-                    f"ALTER TABLE {quote_identifier(table_name)} ADD COLUMN {quote_identifier(column)} {type_name}"
+        existing_columns = table_columns(connection, table_name) if table_exists(connection, table_name) else {}
+        target_columns = {
+            column: configured_types.get(column, incoming_type) for column, incoming_type in incoming_columns.items()
+        }
+        for column, configured_type in configured_types.items():
+            target_columns.setdefault(column, configured_type)
+
+        type_changes: dict[str, str] = {}
+        for column, existing_type in existing_columns.items():
+            if column in configured_types:
+                target_type = reconciled_column_type(
+                    column,
+                    existing_type,
+                    configured_types[column],
+                    configured_types[column],
                 )
-            else:
-                reconcile_column_type(
-                    connection,
-                    table_name,
+                if target_type != existing_type.upper():
+                    type_changes[column] = target_type
+
+        for column, incoming_type in incoming_columns.items():
+            target_type = target_columns[column]
+            if column in existing_columns:
+                target_type = reconciled_column_type(
                     column,
                     existing_columns[column],
-                    type_name,
+                    incoming_type,
+                    configured_types.get(column),
+                )
+                if target_type != existing_columns[column].upper():
+                    type_changes[column] = target_type
+            else:
+                target_type = configured_types.get(column, incoming_type)
+            target_columns[column] = target_type
+            validate_incoming_type(connection, column, incoming_type, target_type)
+
+        if not existing_columns:
+            definitions = ", ".join(
+                f"{quote_identifier(column)} {type_name}" for column, type_name in target_columns.items()
+            )
+            connection.execute(f"CREATE TABLE {quote_identifier(table_name)} ({definitions})")
+        else:
+            for column, type_name in target_columns.items():
+                if column not in existing_columns:
+                    connection.execute(
+                        f"ALTER TABLE {quote_identifier(table_name)} ADD COLUMN {quote_identifier(column)} {type_name}"
+                    )
+            for column, type_name in type_changes.items():
+                connection.execute(
+                    f"ALTER TABLE {quote_identifier(table_name)} "
+                    f"ALTER COLUMN {quote_identifier(column)} TYPE {type_name}"
                 )
 
         columns = ", ".join(quote_identifier(column) for column in row)
-        connection.execute(f"INSERT INTO {quote_identifier(table_name)} ({columns}) SELECT {columns} FROM incoming_run")
+        values = ", ".join(f"CAST({quote_identifier(column)} AS {target_columns[column]})" for column in row)
+        connection.execute(f"INSERT INTO {quote_identifier(table_name)} ({columns}) SELECT {values} FROM incoming_run")
     finally:
         connection.unregister("incoming_run")
 
@@ -278,12 +374,20 @@ def ingest_run(
         raise ValueError(f"Artifact path does not exist: {artifact_path}")
 
     row = metadata_row(artifact_path, metadata, settings)
+    column_types = configured_column_types(settings)
     database_settings = settings["database"]
     database_path = Path(database_settings["path"])
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(database_path)) as connection:
-        append_row(connection, str(database_settings["runs_table"]), row)
-        refresh_summary(connection, settings)
+        connection.execute("BEGIN TRANSACTION")
+        try:
+            append_row(connection, str(database_settings["runs_table"]), row, column_types)
+            refresh_summary(connection, settings)
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        else:
+            connection.execute("COMMIT")
 
     return {
         "database": str(database_path),

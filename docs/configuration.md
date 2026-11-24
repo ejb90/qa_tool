@@ -94,7 +94,7 @@ Ingestion starts from `qa_tool/ingest/default_settings.toml` and accepts an over
 qa-tool ingest store/my-run --settings ingest.toml
 ```
 
-The ingestion file controls the destination tables, selected JSON keys, renames, artifact-column name, and stored summary. See [Data ingestion](ingestion.md#configure-ingestion) for a complete example.
+The ingestion file controls the destination tables, selected JSON keys, renames, authoritative column types, artifact-column name, and stored summary. See [Data ingestion](ingestion.md#configure-ingestion) for a complete example.
 
 !!! warning "Two settings formats"
 

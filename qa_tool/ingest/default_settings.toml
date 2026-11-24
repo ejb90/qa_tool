@@ -13,6 +13,12 @@ artifact_column = "artifact"
 # Output-column = "JSON key". Renamed keys are included even when `include` is empty.
 # uid = "run_id"
 
+[input.types]
+# Optional authoritative DuckDB types for stored columns.
+# uid = "VARCHAR"
+# date = "TIMESTAMP"
+# score = "DOUBLE"
+
 [summary]
 # Create <column>_count fields for these available run columns.
 distinct_columns = ["model", "version"]

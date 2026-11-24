@@ -108,6 +108,12 @@ uid = "run_id"
 model = "device"
 version = "release"
 
+[input.types]
+uid = "VARCHAR"
+date = "TIMESTAMP"
+density = "DOUBLE"
+elapsed_seconds = "DOUBLE"
+
 [summary]
 distinct_columns = ["model", "version"]
 mean_columns = ["density", "elapsed_seconds"]
@@ -120,6 +126,8 @@ qa-tool ingest store/my-run --settings ingest.toml
 ```
 
 An empty `include` list selects every top-level key. `exclude` removes selected keys. Each rename uses the output column on the left and source JSON key on the right.
+
+`[input.types]` optionally declares authoritative DuckDB types. Supported declarations are `BIGINT`, `BOOLEAN`, `DATE`, `DOUBLE`, `JSON`, `TIMESTAMP`, `TIMESTAMPTZ`, and `VARCHAR`. Declared columns are created even when their first value is `null`. Every non-null value is checked before the database schema is changed; incompatible values reject the complete ingestion. Undeclared fields continue to infer their type from their first non-null value.
 
 ## Schema evolution
 
@@ -135,7 +143,7 @@ The first row creates the `runs` table. For later rows, ingestion:
 
 !!! warning "Type changes"
 
-    Schema evolution adds columns and safely widens integer columns to `DOUBLE` when a later run supplies a floating-point value. Other incompatible type changes are rejected rather than silently converting data. Keep the type of a metadata key consistent across runs.
+    Each DuckDB column has one nullable type. Schema evolution adds columns and safely widens integer columns to `DOUBLE` when a later run supplies a floating-point value. Other incompatible type changes are rejected rather than silently converting data. A configured type takes precedence over inference. Keep the type of a metadata key consistent across runs.
 
 ## Ingest several directories
 

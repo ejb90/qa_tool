@@ -202,6 +202,95 @@ def test_ingest_rejects_incompatible_column_type_change(tmp_path: Path) -> None:
         assert database.execute("SELECT uid, score FROM runs").fetchall() == [("run-1", 1.5)]
 
 
+def test_configured_types_are_authoritative_and_nullable(tmp_path: Path) -> None:
+    """Declared types create nullable columns and cast valid source values."""
+    settings = temporary_settings(tmp_path)
+    settings["input"]["types"] = {
+        "uid": "VARCHAR",
+        "date": "TIMESTAMP",
+        "score": "DOUBLE",
+        "passed": "BOOLEAN",
+    }
+    first_artifact = write_artifact(
+        tmp_path,
+        "declared-null",
+        {
+            "uid": "run-1",
+            "model": "device-a",
+            "version": "v1",
+            "date": "2026-01-01T12:30:00",
+            "score": None,
+            "passed": True,
+        },
+    )
+    second_artifact = write_artifact(
+        tmp_path,
+        "declared-integer",
+        {
+            "uid": "run-2",
+            "model": "device-a",
+            "version": "v1",
+            "date": "2026-01-02T12:30:00",
+            "score": 2,
+            "passed": False,
+        },
+    )
+
+    ingest_run(first_artifact, None, settings)
+    ingest_run(second_artifact, None, settings)
+
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        column_types = {name: type_name for name, type_name, *_ in database.execute("DESCRIBE runs").fetchall()}
+        assert column_types["date"] == "TIMESTAMP"
+        assert column_types["score"] == "DOUBLE"
+        assert column_types["passed"] == "BOOLEAN"
+        assert database.execute("SELECT uid, score FROM runs ORDER BY uid").fetchall() == [
+            ("run-1", None),
+            ("run-2", 2.0),
+        ]
+
+
+def test_configured_type_rejects_invalid_value_before_schema_changes(tmp_path: Path) -> None:
+    """A rejected row cannot partially add columns or alter existing data."""
+    settings = temporary_settings(tmp_path)
+    first_artifact = write_artifact(
+        tmp_path,
+        "valid-score",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "score": 1},
+    )
+    invalid_artifact = write_artifact(
+        tmp_path,
+        "invalid-score",
+        {
+            "uid": "run-2",
+            "model": "device-a",
+            "version": "v1",
+            "score": "not-a-number",
+            "new_metric": 5.0,
+        },
+    )
+    ingest_run(first_artifact, None, settings)
+    settings["input"]["types"] = {"score": "DOUBLE"}
+
+    with pytest.raises(ValueError, match="Column `score` cannot be stored as DOUBLE"):
+        ingest_run(invalid_artifact, None, settings)
+
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        columns = {name for name, *_ in database.execute("DESCRIBE runs").fetchall()}
+        assert "new_metric" not in columns
+        assert database.execute("SELECT uid, score FROM runs").fetchall() == [("run-1", 1)]
+
+
+def test_ingest_rejects_unsupported_configured_type(tmp_path: Path) -> None:
+    """Configured type names are allow-listed before being used in SQL."""
+    artifact = write_artifact(tmp_path, "run", {"uid": "run-1", "score": 1.0})
+    settings = temporary_settings(tmp_path)
+    settings["input"]["types"] = {"score": "DOUBLE; DROP TABLE runs"}
+
+    with pytest.raises(ValueError, match="Unsupported configured type"):
+        ingest_run(artifact, None, settings)
+
+
 def test_ingest_discovers_json_and_associates_tar_archive(tmp_path: Path) -> None:
     """A sole JSON file supplies metadata while sibling Parquet needs no JSON pointer."""
     archive_path = write_archive(
