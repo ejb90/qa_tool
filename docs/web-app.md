@@ -68,6 +68,8 @@ https://qa.example.org/?view=saved_comparisons
 
 Changing tabs updates the browser address, so copy that address to link another user directly to the current view. Disabled or unknown views fall back to the first enabled tab.
 
+Database-backed views show the resolved data revision, modification time, size, and cache TTL. Use **Refresh database** to clear only cached runs and stored summaries and reload the current revision immediately. The dashboard otherwise detects promoted snapshots from the resolved file identity and uses the configured TTL as a bounded-staleness fallback.
+
 ## Main pages
 
 | Page | What it provides |

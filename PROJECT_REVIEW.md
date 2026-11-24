@@ -13,14 +13,6 @@ This document records the outstanding work from the project-wide review performe
 
 Completion criterion: a CI job can compare two run collections, publish a useful report, and fail solely from a configured QA regression.
 
-### Refresh dashboard data safely
-
-- [ ] Add a bounded TTL, database fingerprint, or explicit refresh control to Streamlit data caches.
-- [ ] Show the database snapshot or modification time currently being displayed.
-- [ ] Remove the operational requirement to restart the service after every promoted snapshot.
-
-Completion criterion: a promoted database snapshot becomes visible within a documented interval without restarting the dashboard.
-
 ### Avoid loading the complete database into memory
 
 - [ ] Replace unconditional `SELECT *` loading with projected and filtered queries.

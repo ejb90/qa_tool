@@ -5,6 +5,8 @@ layout = "wide"
 [database]
 path = "runs.duckdb"
 artifact_root = "./store"
+# Maximum stale interval after user interaction; zero uses revision detection only.
+cache_ttl_seconds = 60
 
 [database.columns]
 model = "model"

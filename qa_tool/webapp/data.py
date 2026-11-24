@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,51 @@ from qa_tool.core.queries import metric_columns as core_metric_columns
 from qa_tool.core.queries import normalize_run_columns as core_normalize_run_columns
 from qa_tool.webapp.settings import configured_metrics
 
+DEFAULT_DATABASE_CACHE_TTL_SECONDS = 60
+DATABASE_CACHE_MAX_ENTRIES = 8
+
+
+@dataclass(frozen=True)
+class DatabaseRevision:
+    """Filesystem identity used to bind cached data to one database revision."""
+
+    resolved_path: str
+    device: int
+    inode: int
+    size: int
+    modified_ns: int
+
+
+def database_revision(db_path: str | Path) -> DatabaseRevision:
+    """Return a stable cache token for the current resolved database file."""
+    resolved_path = Path(db_path).resolve(strict=True)
+    stat = resolved_path.stat()
+    return DatabaseRevision(
+        resolved_path=str(resolved_path),
+        device=stat.st_dev,
+        inode=stat.st_ino,
+        size=stat.st_size,
+        modified_ns=stat.st_mtime_ns,
+    )
+
+
+def database_cache_ttl_seconds(settings: dict[str, Any]) -> int:
+    """Return the configured non-negative database cache TTL."""
+    value = settings["database"].get("cache_ttl_seconds", DEFAULT_DATABASE_CACHE_TTL_SECONDS)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError("`database.cache_ttl_seconds` must be a non-negative integer")
+    return value
+
+
+def database_cache_generation(ttl_seconds: int, now: float | None = None) -> int:
+    """Return a time bucket used as a bounded-staleness cache key."""
+    if ttl_seconds < 0:
+        raise ValueError("Database cache TTL cannot be negative")
+    if ttl_seconds == 0:
+        return 0
+    current_time = time.time() if now is None else now
+    return int(current_time // ttl_seconds)
+
 
 def normalize_run_columns(
     runs: pd.DataFrame,
@@ -25,16 +72,29 @@ def normalize_run_columns(
     return core_normalize_run_columns(runs, model_column, version_column)
 
 
-@st.cache_data(show_spinner=False)
-def load_runs(db_path: str, model_column: str, version_column: str) -> pd.DataFrame:
+@st.cache_data(show_spinner=False, max_entries=DATABASE_CACHE_MAX_ENTRIES)
+def load_runs(
+    db_path: str,
+    model_column: str,
+    version_column: str,
+    revision: DatabaseRevision | None = None,
+    generation: int = 0,
+) -> pd.DataFrame:
     """Load runs through the shared core query layer with Streamlit caching."""
-    return core_load_runs(db_path, model_column, version_column)
+    del generation
+    source_path = revision.resolved_path if revision is not None else db_path
+    return core_load_runs(source_path, model_column, version_column)
 
 
-@st.cache_data(show_spinner=False)
-def load_run_summary(db_path: str) -> dict[str, Any] | None:
+@st.cache_data(show_spinner=False, max_entries=DATABASE_CACHE_MAX_ENTRIES)
+def load_run_summary(
+    db_path: str,
+    revision: DatabaseRevision | None = None,
+    generation: int = 0,
+) -> dict[str, Any] | None:
     """Load the precomputed overview metrics when the database provides them."""
-    path = Path(db_path)
+    del generation
+    path = Path(revision.resolved_path if revision is not None else db_path)
     if path.suffix != ".duckdb":
         return None
     try:
@@ -46,6 +106,12 @@ def load_run_summary(db_path: str) -> dict[str, Any] | None:
         return None
 
     return summary.iloc[0].to_dict() if not summary.empty else None
+
+
+def clear_database_caches() -> None:
+    """Clear only cached database rows and stored summaries."""
+    load_runs.clear()
+    load_run_summary.clear()
 
 
 def metric_columns(runs: pd.DataFrame) -> list[str]:

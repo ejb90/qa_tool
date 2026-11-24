@@ -11,7 +11,7 @@ from streamlit.testing.v1 import AppTest
 
 from qa_tool.core.archive import create_comparison_archive
 from qa_tool.webapp.app import resolve_database_path
-from qa_tool.webapp.data import load_run_summary, load_runs
+from qa_tool.webapp.data import clear_database_caches, database_revision, load_run_summary, load_runs
 from qa_tool.webapp.settings import load_settings
 
 APP_PATH = Path(__file__).resolve().parents[2] / "qa_tool" / "webapp" / "app.py"
@@ -89,6 +89,51 @@ def test_default_database_falls_back_to_repository_example(
     assert resolve_database_path("custom.duckdb") == Path("custom.duckdb")
 
 
+def test_manual_refresh_clears_only_stale_database_results(tmp_path: Path) -> None:
+    """A manual database refresh reloads data even when the cache key is unchanged."""
+    database_path = tmp_path / "runs.duckdb"
+    create_runs_database(database_path)
+    revision = database_revision(database_path)
+    clear_database_caches()
+
+    before = load_runs(str(database_path), "device", "release", revision, 0)
+    with duckdb.connect(str(database_path)) as database:
+        database.execute("UPDATE runs SET score = 9.0")
+    still_cached = load_runs(str(database_path), "device", "release", revision, 0)
+    clear_database_caches()
+    refreshed = load_runs(str(database_path), "device", "release", revision, 0)
+
+    assert before.loc[0, "score"] == 1.5
+    assert still_cached.loc[0, "score"] == 1.5
+    assert refreshed.loc[0, "score"] == 9.0
+
+
+def test_promoted_database_revision_bypasses_cached_runs(tmp_path: Path) -> None:
+    """An atomic current-pointer promotion loads the new immutable database."""
+    first_database = tmp_path / "releases" / "first" / "runs.duckdb"
+    second_database = tmp_path / "releases" / "second" / "runs.duckdb"
+    first_database.parent.mkdir(parents=True)
+    second_database.parent.mkdir(parents=True)
+    create_runs_database(first_database)
+    create_runs_database(second_database)
+    with duckdb.connect(str(second_database)) as database:
+        database.execute("UPDATE runs SET score = 7.5")
+
+    current_database = tmp_path / "current.duckdb"
+    current_database.symlink_to(first_database)
+    first_revision = database_revision(current_database)
+    first_runs = load_runs(str(current_database), "device", "release", first_revision, 0)
+
+    next_link = tmp_path / "next.duckdb"
+    next_link.symlink_to(second_database)
+    next_link.replace(current_database)
+    second_revision = database_revision(current_database)
+    second_runs = load_runs(str(current_database), "device", "release", second_revision, 0)
+
+    assert first_runs.loc[0, "score"] == 1.5
+    assert second_runs.loc[0, "score"] == 7.5
+
+
 def test_app_loads_alias_columns_from_duckdb(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -104,6 +149,7 @@ def test_app_loads_alias_columns_from_duckdb(
     app.run(timeout=10)
 
     assert not app.exception
+    assert any(button.label == "Refresh database" for button in app.button)
     assert len(app.dataframe) == 1
     assert app.dataframe[0].value.loc[0, "model"] == "device-a"
     assert app.dataframe[0].value.loc[0, "version"] == "v1"

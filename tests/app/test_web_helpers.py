@@ -32,7 +32,14 @@ from qa_tool.webapp.compare import (
     comparison_coverage,
     comparison_metadata,
 )
-from qa_tool.webapp.data import dataframe_to_csv, dataframe_to_json, dataframe_to_pickle
+from qa_tool.webapp.data import (
+    database_cache_generation,
+    database_cache_ttl_seconds,
+    database_revision,
+    dataframe_to_csv,
+    dataframe_to_json,
+    dataframe_to_pickle,
+)
 from qa_tool.webapp.exports import dataframes_to_zip, export_name
 from qa_tool.webapp.settings import configured_metrics, deep_merge_settings, override_settings_path
 from qa_tool.webapp.styling import (
@@ -202,6 +209,35 @@ def test_dataframe_settings_and_styling_helpers(monkeypatch: pytest.MonkeyPatch,
     )
     assert isinstance(styled, Styler)
     assert "background-color" in styled.to_html()
+
+
+def test_database_revision_and_cache_generation_track_promoted_files(tmp_path: Path) -> None:
+    """Database cache keys change for file updates, symlink promotion, and TTL boundaries."""
+    first = tmp_path / "release-one" / "runs.duckdb"
+    second = tmp_path / "release-two" / "runs.duckdb"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"first")
+    second.write_bytes(b"second snapshot")
+    current = tmp_path / "current.duckdb"
+    current.symlink_to(first)
+
+    first_revision = database_revision(current)
+    replacement_link = tmp_path / "next.duckdb"
+    replacement_link.symlink_to(second)
+    replacement_link.replace(current)
+    second_revision = database_revision(current)
+
+    assert first_revision.resolved_path == str(first)
+    assert second_revision.resolved_path == str(second)
+    assert first_revision != second_revision
+    assert database_cache_generation(60, now=119.9) == 1
+    assert database_cache_generation(60, now=120.0) == 2
+    assert database_cache_generation(0, now=120.0) == 0
+    assert database_cache_ttl_seconds({"database": {}}) == 60
+    assert database_cache_ttl_seconds({"database": {"cache_ttl_seconds": 0}}) == 0
+    with pytest.raises(ValueError, match="non-negative integer"):
+        database_cache_ttl_seconds({"database": {"cache_ttl_seconds": -1}})
 
 
 def test_collection_and_cdf_helpers_cover_labels_and_masks() -> None:

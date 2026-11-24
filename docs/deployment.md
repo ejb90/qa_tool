@@ -68,17 +68,11 @@ synchronizer never sees an incomplete snapshot.
 7. The synchronizer atomically changes
    `/srv/qa-tool/current` to point at the new release. The dashboard receives
    only complete database/artifact pairs.
-8. Refresh the dashboard's cached data. Until cache expiry is implemented,
-   force a single-service rollout after promotion:
-
-   ```bash
-   docker service update --force qa-tool_qa-tool
-   ```
-
-   The current application uses Streamlit data caching without a time-to-live,
-   so this restart is required for it to consistently show the new row. A
-   future application change can set a short cache TTL (for example 60
-   seconds), removing the need for a restart.
+8. The next dashboard interaction resolves the promoted `current` pointer and
+   uses the new file identity as its cache key. A configurable cache TTL
+   (60 seconds by default) provides a bounded-staleness fallback, and the
+   **Refresh database** control forces an immediate scoped reload. No service
+   restart is required.
 
 ## Swarm mount arrangement
 

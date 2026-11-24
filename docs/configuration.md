@@ -37,6 +37,7 @@ layout = "wide"
 [database]
 path = "results/runs.duckdb"
 artifact_root = "./store"
+cache_ttl_seconds = 60
 
 [database.columns]
 model = "device"
@@ -63,6 +64,12 @@ density = 0.1
 ### Database column mapping
 
 The analysis layer uses canonical `model` and `version` names internally. `[database.columns]` maps existing database columns onto those names without rewriting the database. Do not map a source column onto a canonical name that already exists as a different column.
+
+### Database cache refresh
+
+`[database].cache_ttl_seconds` bounds how long cached runs and summary data can remain stale after a user interaction. The default is 60 seconds. Set it to `0` to disable time-based expiry and rely on database revision detection plus the manual refresh control.
+
+The dashboard fingerprints the resolved database file using its path, filesystem identity, size, and modification time. Promoting an immutable snapshot through a symlink therefore changes the cache key immediately. The TTL is a fallback for environments where a change is not otherwise observable; it does not poll or modify DuckDB.
 
 ### Tables, tabs, and summaries
 

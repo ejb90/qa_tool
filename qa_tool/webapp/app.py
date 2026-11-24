@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import streamlit as st
@@ -18,6 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from qa_tool.webapp.data import (  # noqa: E402
+    DatabaseRevision,
+    clear_database_caches,
+    database_cache_generation,
+    database_cache_ttl_seconds,
+    database_revision,
     filter_runs,
     load_run_summary,
     load_runs,
@@ -64,6 +70,32 @@ def resolve_database_path(configured_path: str | Path) -> Path:
     if database_path == Path("runs.duckdb") and not database_path.exists() and EXAMPLE_DATABASE.exists():
         return EXAMPLE_DATABASE
     return database_path
+
+
+def show_database_controls(
+    revision: DatabaseRevision,
+    ttl_seconds: int,
+    *,
+    show_resolved_path: bool,
+) -> None:
+    """Show the active database revision and a scoped manual refresh control."""
+    refresh_column, status_column = st.columns([1, 5])
+    if refresh_column.button("Refresh database", use_container_width=True):
+        clear_database_caches()
+        st.rerun()
+
+    modified = datetime.fromtimestamp(revision.modified_ns / 1_000_000_000, tz=UTC).isoformat(timespec="seconds")
+    size_mib = revision.size / (1024 * 1024)
+    ttl_label = f"{ttl_seconds} s" if ttl_seconds else "revision only"
+    details = [
+        f"Revision: `{Path(revision.resolved_path).parent.name}`",
+        f"modified: `{modified}`",
+        f"size: `{size_mib:.1f} MiB`",
+        f"cache TTL: `{ttl_label}`",
+    ]
+    if show_resolved_path:
+        details.append(f"resolved database: `{revision.resolved_path}`")
+    status_column.caption("  |  ".join(details))
 
 
 def main(settings_path: str | Path | None = None) -> None:
@@ -146,8 +178,21 @@ def main(settings_path: str | Path | None = None) -> None:
         st.error("QA Tool requires a DuckDB database with a `.duckdb` extension.")
         return
 
+    try:
+        revision = database_revision(db_path)
+        cache_ttl_seconds = database_cache_ttl_seconds(settings)
+    except (OSError, ValueError) as error:
+        st.error(f"Could not identify database revision: {error}")
+        return
+    show_database_controls(
+        revision,
+        cache_ttl_seconds,
+        show_resolved_path=settings["intro"].get("show_database_path", True),
+    )
+    cache_generation = database_cache_generation(cache_ttl_seconds)
+
     if active_key == "overview":
-        stored_summary = load_run_summary(str(db_path))
+        stored_summary = load_run_summary(str(db_path), revision, cache_generation)
         with active_tab:
             if stored_summary is not None:
                 show_stored_summary(stored_summary)
@@ -162,6 +207,8 @@ def main(settings_path: str | Path | None = None) -> None:
             str(db_path),
             database_columns.get("model", "model"),
             database_columns.get("version", "version"),
+            revision,
+            cache_generation,
         )
     except Exception as error:
         st.error(f"Could not load database: {error}")
