@@ -102,6 +102,7 @@ summary_table = "run_summary"
 include = ["run_id", "device", "release", "date", "density", "elapsed_seconds"]
 exclude = []
 artifact_column = "artifact"
+required = ["uid", "model", "version", "date"]
 
 [input.rename]
 uid = "run_id"
@@ -127,6 +128,8 @@ qa-tool ingest store/my-run --settings ingest.toml
 
 An empty `include` list selects every top-level key. `exclude` removes selected keys. Each rename uses the output column on the left and source JSON key on the right.
 
+`required` names stored columns after rename rules have been applied. By default, `uid`, `model`, `version`, and `date` must be present and non-null, and `date` must be parseable. Override the list only when intentionally building a database for a different consumer.
+
 `[input.types]` optionally declares authoritative DuckDB types. Supported declarations are `BIGINT`, `BOOLEAN`, `DATE`, `DOUBLE`, `JSON`, `TIMESTAMP`, `TIMESTAMPTZ`, and `VARCHAR`. Declared columns are created even when their first value is `null`. Every non-null value is checked before the database schema is changed; incompatible values reject the complete ingestion. Undeclared fields continue to infer their type from their first non-null value. When a new type is inferred, the CLI prints a warning and ready-to-copy `[input.types]` entries; later rows using the already established type do not repeat that warning.
 
 ## Schema evolution
@@ -145,6 +148,24 @@ The first row creates the `runs` table. For later rows, ingestion:
 
     Each DuckDB column has one nullable type. Schema evolution adds columns and safely widens integer columns to `DOUBLE` when a later run supplies a floating-point value. Other incompatible type changes are rejected rather than silently converting data. A configured type takes precedence over inference. Keep the type of a metadata key consistent across runs.
 
+## Recover or replace a duplicate UID
+
+Ordinary ingestion rejects a `uid` that already exists. If a previous ingestion left exactly one incomplete row, replace it with complete metadata using:
+
+```bash
+qa-tool ingest store/recovered-run --force
+```
+
+`--force` checks the stored row against the current `required` list and refuses to overwrite a complete run.
+
+To deliberately replace a complete run—or collapse several legacy duplicate rows into one validated row—use the stronger option:
+
+```bash
+qa-tool ingest store/replacement-run --clobber
+```
+
+`--clobber` deletes every row with the incoming UID, then inserts the replacement inside the same transaction. The replacement must still satisfy required-field and type validation. The option changes rows only; it preserves the existing table and its column types. `--force` and `--clobber` cannot be combined.
+
 ## Ingest several directories
 
 The command accepts one artifact directory or tar archive at a time. A shell loop can ingest an existing store:
@@ -160,7 +181,8 @@ For automated pipelines, stop on the first failed ingestion and publish the data
 
 ## Operational considerations
 
-- Ingestion appends; it does not update or deduplicate an existing `uid`.
+- A duplicate `uid` is rejected. `--force` may replace exactly one matching row only when that stored row is incomplete under the current `required` policy; it never overwrites a complete run.
+- `--clobber` is the explicit destructive alternative: it deletes every existing row with the incoming UID and inserts the new validated row, even when the old run is complete. It does not bypass required-field or type validation, and it does not recreate the table schema. `--force` and `--clobber` are mutually exclusive.
 - Use one writer at a time. Do not let the dashboard or another job write the same DuckDB file concurrently.
 - Store paths that remain valid wherever the dashboard runs. Relative artifact paths are resolved from the dashboard's working directory.
 - When modifying `runs` outside QA Tool, rebuild `run_summary` before relying on the Overview page.

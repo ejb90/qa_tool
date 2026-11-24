@@ -8,6 +8,8 @@ summary_table = "run_summary"
 include = []
 exclude = []
 artifact_column = "artifact"
+# Required stored columns are checked after include, exclude, and rename rules.
+required = ["uid", "model", "version", "date"]
 
 [input.rename]
 # Output-column = "JSON key". Renamed keys are included even when `include` is empty.

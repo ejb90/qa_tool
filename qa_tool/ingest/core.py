@@ -197,6 +197,95 @@ def configured_column_types(settings: dict[str, Any]) -> dict[str, str]:
     return validated
 
 
+def required_columns(settings: dict[str, Any]) -> list[str]:
+    """Return the validated list of required stored columns."""
+    required = settings["input"].get("required", ["uid", "model", "version", "date"])
+    if not isinstance(required, list) or not all(isinstance(column, str) and column for column in required):
+        raise ValueError("Ingestion setting `input.required` must be a list of column names")
+    return list(dict.fromkeys(required))
+
+
+def value_is_missing(value: object) -> bool:
+    """Return whether a required scalar value is null or blank."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def validate_required_values(row: dict[str, Any], required: list[str]) -> None:
+    """Reject rows with missing required values or an invalid canonical date."""
+    missing = [column for column in required if column not in row or value_is_missing(row[column])]
+    if missing:
+        raise ValueError("Missing required metadata field(s): " + ", ".join(f"`{column}`" for column in missing))
+
+    if "date" in row:
+        try:
+            pd.to_datetime(row["date"], errors="raise")
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Metadata field `date` is not a valid date or timestamp: {row['date']}") from error
+
+
+def matching_run_rows(
+    connection: duckdb.DuckDBPyConnection,
+    table_name: str,
+    uid: object,
+    required: list[str],
+) -> tuple[list[str], list[tuple[object, ...]]]:
+    """Return required values for stored rows matching one UID."""
+    if not table_exists(connection, table_name):
+        return [], []
+    columns = table_columns(connection, table_name)
+    if "uid" not in columns:
+        return [], []
+    selected_columns = [column for column in required if column in columns]
+    expressions = ", ".join(quote_identifier(column) for column in selected_columns) or "1"
+    rows = connection.execute(
+        f"SELECT {expressions} FROM {quote_identifier(table_name)} "
+        f"WHERE CAST({quote_identifier('uid')} AS VARCHAR) = ?",
+        [str(uid)],
+    ).fetchall()
+    return selected_columns, rows
+
+
+def stored_row_is_incomplete(
+    selected_columns: list[str],
+    values: tuple[object, ...],
+    required: list[str],
+) -> bool:
+    """Return whether a stored row is missing any currently required value."""
+    stored = dict(zip(selected_columns, values, strict=True))
+    if any(column not in stored or value_is_missing(stored.get(column)) for column in required):
+        return True
+    if "date" in stored:
+        try:
+            pd.to_datetime(stored["date"], errors="raise")
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
+def handle_uid_conflict(
+    connection: duckdb.DuckDBPyConnection,
+    table_name: str,
+    uid: object,
+    required: list[str],
+    *,
+    force: bool,
+    clobber: bool,
+) -> int:
+    """Reject duplicate UIDs or remove matching rows under an explicit policy."""
+    selected_columns, matches = matching_run_rows(connection, table_name, uid, required)
+    if not matches:
+        return 0
+    if clobber:
+        return len(matches)
+    if len(matches) > 1:
+        raise ValueError(f"Run UID `{uid}` already has {len(matches)} rows; repair duplicates before ingesting")
+    if not force:
+        raise ValueError(f"Run UID `{uid}` already exists; use --force only to replace an incomplete run")
+    if not stored_row_is_incomplete(selected_columns, matches[0], required):
+        raise ValueError(f"Run UID `{uid}` is complete and cannot be replaced with --force")
+    return 1
+
+
 def reconciled_column_type(
     column: str,
     existing_type: str,
@@ -264,6 +353,7 @@ def append_row(
     table_name: str,
     row: dict[str, Any],
     configured_types: dict[str, str] | None = None,
+    replace_uid: object | None = None,
 ) -> dict[str, str]:
     """Validate and append a row, returning types inferred for new columns."""
     configured_types = configured_types or {}
@@ -329,6 +419,11 @@ def append_row(
                     f"ALTER COLUMN {quote_identifier(column)} TYPE {type_name}"
                 )
 
+        if replace_uid is not None:
+            connection.execute(
+                f"DELETE FROM {quote_identifier(table_name)} WHERE CAST({quote_identifier('uid')} AS VARCHAR) = ?",
+                [str(replace_uid)],
+            )
         columns = ", ".join(quote_identifier(column) for column in row)
         values = ", ".join(f"CAST({quote_identifier(column)} AS {target_columns[column]})" for column in row)
         connection.execute(f"INSERT INTO {quote_identifier(table_name)} ({columns}) SELECT {values} FROM incoming_run")
@@ -368,8 +463,14 @@ def ingest_run(
     artifact_dir: str | Path,
     metadata_path: str | Path | None,
     settings: dict[str, Any],
+    *,
+    force: bool = False,
+    clobber: bool = False,
 ) -> dict[str, Any]:
     """Append metadata from an artifact directory or tar archive and refresh summaries."""
+    if force and clobber:
+        raise ValueError("Choose either force recovery or clobber replacement, not both")
+
     artifact_path = Path(artifact_dir)
     if artifact_path.is_dir():
         metadata = read_directory_metadata(artifact_path, metadata_path)
@@ -381,16 +482,34 @@ def ingest_run(
         raise ValueError(f"Artifact path does not exist: {artifact_path}")
 
     row = metadata_row(artifact_path, metadata, settings)
+    required = required_columns(settings)
+    validate_required_values(row, required)
     configured_types = configured_column_types(settings)
     artifact_column = str(settings["input"].get("artifact_column", "artifact"))
     column_types = {artifact_column: "VARCHAR", **configured_types}
     database_settings = settings["database"]
     database_path = Path(database_settings["path"])
     database_path.parent.mkdir(parents=True, exist_ok=True)
+    replaced_rows = 0
     with duckdb.connect(str(database_path)) as connection:
         connection.execute("BEGIN TRANSACTION")
         try:
-            inferred_types = append_row(connection, str(database_settings["runs_table"]), row, column_types)
+            if "uid" in row:
+                replaced_rows = handle_uid_conflict(
+                    connection,
+                    str(database_settings["runs_table"]),
+                    row["uid"],
+                    required,
+                    force=force,
+                    clobber=clobber,
+                )
+            inferred_types = append_row(
+                connection,
+                str(database_settings["runs_table"]),
+                row,
+                column_types,
+                replace_uid=row.get("uid") if replaced_rows else None,
+            )
             refresh_summary(connection, settings)
         except Exception:
             connection.execute("ROLLBACK")
@@ -404,4 +523,6 @@ def ingest_run(
         "summary_table": database_settings["summary_table"],
         "columns": list(row),
         "inferred_types": inferred_types,
+        "replaced": replaced_rows > 0,
+        "replaced_rows": replaced_rows,
     }

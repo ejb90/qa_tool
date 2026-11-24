@@ -27,6 +27,7 @@ def temporary_settings(tmp_path: Path) -> dict[str, object]:
     """Return default ingestion settings targeting a temporary DuckDB file."""
     settings = load_settings()
     settings["database"]["path"] = str(tmp_path / "runs.duckdb")
+    settings["input"]["required"] = []
     settings["summary"]["mean_columns"] = ["score", "new_metric"]
     return settings
 
@@ -301,6 +302,117 @@ def test_ingest_rejects_unsupported_configured_type(tmp_path: Path) -> None:
         ingest_run(artifact, None, settings)
 
 
+def test_default_required_fields_reject_incomplete_or_invalid_runs(tmp_path: Path) -> None:
+    """Default ingestion requires complete analysis identity and a parseable date."""
+    settings = load_settings()
+    settings["database"]["path"] = str(tmp_path / "required.duckdb")
+    incomplete = write_artifact(tmp_path, "incomplete", {"uid": "run-1", "model": "device-a"})
+    invalid_date = write_artifact(
+        tmp_path,
+        "invalid-date",
+        {"uid": "run-2", "model": "device-a", "version": "v1", "date": "not-a-date"},
+    )
+
+    with pytest.raises(ValueError, match=r"Missing required metadata field.*`version`.*`date`"):
+        ingest_run(incomplete, None, settings)
+    with pytest.raises(ValueError, match="not a valid date or timestamp"):
+        ingest_run(invalid_date, None, settings)
+    assert not Path(settings["database"]["path"]).exists()
+
+
+def test_duplicate_uid_is_rejected_even_when_force_targets_complete_run(tmp_path: Path) -> None:
+    """Neither normal nor forced ingestion overwrites a complete stored run."""
+    settings = load_settings()
+    settings["database"]["path"] = str(tmp_path / "duplicates.duckdb")
+    original = write_artifact(
+        tmp_path,
+        "original",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "date": "2026-01-01", "score": 1.0},
+    )
+    replacement = write_artifact(
+        tmp_path,
+        "replacement",
+        {"uid": "run-1", "model": "device-b", "version": "v2", "date": "2026-01-02", "score": 2.0},
+    )
+    ingest_run(original, None, settings)
+
+    with pytest.raises(ValueError, match="already exists"):
+        ingest_run(replacement, None, settings)
+    with pytest.raises(ValueError, match="is complete and cannot be replaced"):
+        ingest_run(replacement, None, settings, force=True)
+
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        assert database.execute("SELECT uid, model, score FROM runs").fetchall() == [("run-1", "device-a", 1.0)]
+
+
+def test_force_replaces_one_incomplete_run_with_complete_metadata(tmp_path: Path) -> None:
+    """Forced ingestion recovers a same-UID legacy row only when it is incomplete."""
+    settings = temporary_settings(tmp_path)
+    incomplete = write_artifact(tmp_path, "incomplete-run", {"uid": "run-1", "score": 1.0})
+    ingest_run(incomplete, None, settings)
+
+    settings["input"]["required"] = ["uid", "model", "version", "date"]
+    complete = write_artifact(
+        tmp_path,
+        "complete-run",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "date": "2026-01-01", "score": 2.0},
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        ingest_run(complete, None, settings)
+
+    result = ingest_run(complete, None, settings, force=True)
+
+    assert result["replaced"] is True
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        assert database.execute("SELECT uid, model, version, date, score FROM runs").fetchall() == [
+            ("run-1", "device-a", "v1", "2026-01-01", 2.0)
+        ]
+
+
+def test_clobber_replaces_complete_run_but_still_validates_replacement(tmp_path: Path) -> None:
+    """Clobber explicitly replaces a complete run without bypassing validation."""
+    settings = load_settings()
+    settings["database"]["path"] = str(tmp_path / "clobber.duckdb")
+    original = write_artifact(
+        tmp_path,
+        "clobber-original",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "date": "2026-01-01", "score": 1.0},
+    )
+    replacement = write_artifact(
+        tmp_path,
+        "clobber-replacement",
+        {"uid": "run-1", "model": "device-b", "version": "v2", "date": "2026-01-02", "score": 2.0},
+    )
+    invalid = write_artifact(tmp_path, "clobber-invalid", {"uid": "run-1", "model": "device-c"})
+    ingest_run(original, None, settings)
+    with duckdb.connect(settings["database"]["path"]) as database:
+        database.execute("INSERT INTO runs SELECT * FROM runs")
+
+    with pytest.raises(ValueError, match="Missing required metadata field"):
+        ingest_run(invalid, None, settings, clobber=True)
+    result = ingest_run(replacement, None, settings, clobber=True)
+
+    assert result["replaced_rows"] == 2
+    with duckdb.connect(settings["database"]["path"], read_only=True) as database:
+        assert database.execute("SELECT uid, model, version, date, score FROM runs").fetchall() == [
+            ("run-1", "device-b", "v2", "2026-01-02", 2.0)
+        ]
+
+
+def test_force_and_clobber_are_mutually_exclusive(tmp_path: Path) -> None:
+    """Callers must select one replacement policy."""
+    artifact = write_artifact(
+        tmp_path,
+        "conflicting-policy",
+        {"uid": "run-1", "model": "device-a", "version": "v1", "date": "2026-01-01"},
+    )
+    settings = load_settings()
+    settings["database"]["path"] = str(tmp_path / "conflicting-policy.duckdb")
+
+    with pytest.raises(ValueError, match="either force recovery or clobber replacement"):
+        ingest_run(artifact, None, settings, force=True, clobber=True)
+
+
 def test_ingest_discovers_json_and_associates_tar_archive(tmp_path: Path) -> None:
     """A sole JSON file supplies metadata while sibling Parquet needs no JSON pointer."""
     archive_path = write_archive(
@@ -386,6 +498,7 @@ def test_toml_settings_select_and_rename_json_keys(tmp_path: Path) -> None:
                 "",
                 "[input]",
                 'include = ["run_identifier", "device", "score"]',
+                'required = ["uid", "model"]',
                 "",
                 "[input.rename]",
                 'uid = "run_identifier"',
@@ -482,7 +595,13 @@ def test_unified_cli_uses_default_metadata_location(
     artifact_dir = write_artifact(
         tmp_path,
         "cli-run",
-        {"uid": "run-6", "model": "device-e", "version": "v2", "score": 6.0},
+        {
+            "uid": "run-6",
+            "model": "device-e",
+            "version": "v2",
+            "date": "2026-01-01T12:00:00Z",
+            "score": 6.0,
+        },
     )
     database_path = tmp_path / "cli.duckdb"
     settings_path = tmp_path / "cli.toml"
@@ -510,7 +629,17 @@ def test_unified_cli_uses_default_metadata_location(
 
 def test_unified_cli_ingests_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The generic qa-tool entry point exposes ingestion as a subcommand."""
-    artifact_dir = write_artifact(tmp_path, "unified-run", {"uid": "run-unified", "score": 8.0})
+    artifact_dir = write_artifact(
+        tmp_path,
+        "unified-run",
+        {
+            "uid": "run-unified",
+            "model": "device-a",
+            "version": "v1",
+            "date": "2026-01-01T12:00:00Z",
+            "score": 8.0,
+        },
+    )
     database_path = tmp_path / "unified.duckdb"
 
     qa_tool_main(["ingest", str(artifact_dir), "--database", str(database_path)])
@@ -525,7 +654,17 @@ def test_unified_cli_does_not_warn_for_fully_configured_types(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """An authoritative schema avoids inference warnings."""
-    artifact_dir = write_artifact(tmp_path, "configured-run", {"uid": "run-configured", "score": 8.0})
+    artifact_dir = write_artifact(
+        tmp_path,
+        "configured-run",
+        {
+            "uid": "run-configured",
+            "model": "device-a",
+            "version": "v1",
+            "date": "2026-01-01T12:00:00Z",
+            "score": 8.0,
+        },
+    )
     database_path = tmp_path / "configured.duckdb"
     settings_path = tmp_path / "configured.toml"
     settings_path.write_text(
@@ -536,6 +675,9 @@ def test_unified_cli_does_not_warn_for_fully_configured_types(
                 "",
                 "[input.types]",
                 'uid = "VARCHAR"',
+                'model = "VARCHAR"',
+                'version = "VARCHAR"',
+                'date = "TIMESTAMP"',
                 'score = "DOUBLE"',
             ]
         ),
@@ -555,7 +697,15 @@ def test_unified_cli_ingests_tar_gz(tmp_path: Path, capsys: pytest.CaptureFixtur
         tmp_path,
         "cli-run.tar.gz",
         {
-            "cli-run/metadata.json": json.dumps({"uid": "archive-cli", "score": 9.0}).encode(),
+            "cli-run/metadata.json": json.dumps(
+                {
+                    "uid": "archive-cli",
+                    "model": "device-a",
+                    "version": "v1",
+                    "date": "2026-01-01T12:00:00Z",
+                    "score": 9.0,
+                }
+            ).encode(),
             "cli-run/data.parquet": b"parquet-placeholder",
         },
     )
@@ -576,7 +726,16 @@ def test_cli_database_option_overrides_toml_destination(
     tmp_path: Path,
 ) -> None:
     """The CLI database option takes precedence over the TOML destination."""
-    artifact_dir = write_artifact(tmp_path, "override-run", {"uid": "run-7"})
+    artifact_dir = write_artifact(
+        tmp_path,
+        "override-run",
+        {
+            "uid": "run-7",
+            "model": "device-a",
+            "version": "v1",
+            "date": "2026-01-01T12:00:00Z",
+        },
+    )
     configured_database = tmp_path / "configured.duckdb"
     override_database = tmp_path / "override.duckdb"
     settings_path = tmp_path / "override.toml"

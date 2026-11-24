@@ -183,13 +183,30 @@ def cli(*, verbose: bool) -> None:
 )
 @click.option("--settings", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--database", type=click.Path(path_type=Path), help="Override the ingestion database path.")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace a same-UID row only when the stored run is incomplete.",
+)
+@click.option(
+    "--clobber",
+    is_flag=True,
+    help="Delete all same-UID rows and replace them, even when complete.",
+)
 @handle_errors
-def ingest(artifact_path: Path, metadata: Path | None, settings: Path | None, database: Path | None) -> None:
+def ingest(
+    artifact_path: Path,
+    metadata: Path | None,
+    settings: Path | None,
+    database: Path | None,
+    force: bool,
+    clobber: bool,
+) -> None:
     """Append metadata from an artifact directory or tar archive to DuckDB."""
     ingestion_settings = load_ingest_settings(settings)
     if database is not None:
         ingestion_settings["database"]["path"] = str(database)
-    result = ingest_run(artifact_path, metadata, ingestion_settings)
+    result = ingest_run(artifact_path, metadata, ingestion_settings, force=force, clobber=clobber)
 
     details = Table.grid(padding=(0, 2))
     details.add_column(style="bold cyan", justify="right")
@@ -199,6 +216,9 @@ def ingest(artifact_path: Path, metadata: Path | None, settings: Path | None, da
     details.add_row("Runs table", str(result["runs_table"]))
     details.add_row("Summary table", str(result["summary_table"]))
     details.add_row("Stored columns", ", ".join(result["columns"]))
+    if result["replaced"]:
+        action = "Clobbered" if clobber else "Recovered"
+        details.add_row(action, f"Replaced {result['replaced_rows']} row(s) with the same UID")
     console = Console()
     console.print(Panel(details, title="[bold green]✓ Ingested run", border_style="green"))
     inferred_types = result["inferred_types"]
