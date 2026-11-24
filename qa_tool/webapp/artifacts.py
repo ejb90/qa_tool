@@ -82,11 +82,18 @@ def parquet_files_for_run(row: pd.Series, artifact_root: str) -> dict[str, Path]
     return {parquet_file.name: parquet_file for parquet_file in sorted(artifact_path.rglob("*.parquet"))}
 
 
-def render_artifact_file(path: Path) -> None:
+def load_pickle_artifact(path: Path, *, allow_unsafe_pickle: bool = False) -> object:
+    """Load a trusted pickle only when unsafe local rendering is explicit."""
+    if not allow_unsafe_pickle:
+        raise ValueError("Pickle loading is disabled")
+    return pd.read_pickle(path)
+
+
+def render_artifact_file(path: Path, *, allow_unsafe_pickle: bool = False) -> None:
     """Handle render artifact file."""
     suffix = path.suffix.lower()
     if is_tar_artifact(path):
-        render_tar_artifact(path)
+        render_tar_artifact(path, allow_unsafe_pickle=allow_unsafe_pickle)
         return
 
     with st.expander(path.name, expanded=False):
@@ -98,13 +105,22 @@ def render_artifact_file(path: Path) -> None:
         elif suffix == ".parquet":
             render_parquet_artifact(path)
         elif suffix in {".pkl", ".pickle"}:
-            artifact = pd.read_pickle(path)
-            if isinstance(artifact, pd.DataFrame):
-                st.dataframe(artifact, use_container_width=True)
-            elif isinstance(artifact, pd.Series):
-                st.dataframe(artifact.to_frame(), use_container_width=True)
+            if not allow_unsafe_pickle:
+                st.warning("Pickle preview is disabled because loading pickle files can execute arbitrary code.")
+                st.download_button(
+                    "Download pickle artifact",
+                    data=path.read_bytes(),
+                    file_name=path.name,
+                    use_container_width=True,
+                )
             else:
-                st.write(artifact)
+                artifact = load_pickle_artifact(path, allow_unsafe_pickle=True)
+                if isinstance(artifact, pd.DataFrame):
+                    st.dataframe(artifact, use_container_width=True)
+                elif isinstance(artifact, pd.Series):
+                    st.dataframe(artifact.to_frame(), use_container_width=True)
+                else:
+                    st.write(artifact)
         elif suffix in {".json", ".jsonl"}:
             if suffix == ".jsonl":
                 st.dataframe(pd.read_json(path, lines=True), use_container_width=True)
@@ -280,7 +296,7 @@ def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
     tar.extractall(destination, filter="data")
 
 
-def render_tar_artifact(path: Path) -> None:
+def render_tar_artifact(path: Path, *, allow_unsafe_pickle: bool = False) -> None:
     """Handle render tar artifact."""
     st.caption(f"Archive: `{path}`")
     with tarfile.open(path) as tar:
@@ -299,10 +315,10 @@ def render_tar_artifact(path: Path) -> None:
             temp_path = Path(temp_dir)
             safe_extract_tar(tar, temp_path)
             for artifact_file in sorted(item for item in temp_path.rglob("*") if item.is_file()):
-                render_artifact_file(artifact_file)
+                render_artifact_file(artifact_file, allow_unsafe_pickle=allow_unsafe_pickle)
 
 
-def show_run_artifacts(row: pd.Series, artifact_root: str) -> None:
+def show_run_artifacts(row: pd.Series, artifact_root: str, *, allow_unsafe_pickle: bool = False) -> None:
     """Handle show run artifacts."""
     st.subheader("Artifacts")
     candidates = run_artifact_candidates(row, artifact_root)
@@ -319,7 +335,7 @@ def show_run_artifacts(row: pd.Series, artifact_root: str) -> None:
         if not path.exists():
             continue
         if path.is_file():
-            render_artifact_file(path)
+            render_artifact_file(path, allow_unsafe_pickle=allow_unsafe_pickle)
             return
 
         artifact_files = [item for item in sorted(path.rglob("*")) if item.is_file()]
@@ -329,7 +345,7 @@ def show_run_artifacts(row: pd.Series, artifact_root: str) -> None:
 
         st.caption(f"Artifact directory: `{path}`")
         for artifact_file in artifact_files:
-            render_artifact_file(artifact_file)
+            render_artifact_file(artifact_file, allow_unsafe_pickle=allow_unsafe_pickle)
         return
 
     st.info("No local artifacts found for this run.")

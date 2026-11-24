@@ -44,12 +44,18 @@ from qa_tool.webapp.views import (  # noqa: E402
 )
 
 
-def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:
-    """Handle cli settings path."""
+def cli_app_options(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse application arguments forwarded after Streamlit's separator."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--settings")
+    parser.add_argument("--allow-unsafe-pickle", action="store_true")
     args, _ = parser.parse_known_args(argv)
-    return args.settings
+    return args
+
+
+def cli_settings_path(argv: Sequence[str] | None = None) -> str | None:
+    """Return the settings path forwarded to the Streamlit application."""
+    return cli_app_options(argv).settings
 
 
 def resolve_database_path(configured_path: str | Path) -> Path:
@@ -62,8 +68,9 @@ def resolve_database_path(configured_path: str | Path) -> Path:
 
 def main(settings_path: str | Path | None = None) -> None:
     """Handle main."""
+    app_options = cli_app_options()
     try:
-        settings = load_settings(settings_path or cli_settings_path())
+        settings = load_settings(settings_path or app_options.settings)
     except FileNotFoundError as error:
         st.set_page_config(page_title="QA Tool", layout="wide")
         st.error(str(error))
@@ -74,6 +81,8 @@ def main(settings_path: str | Path | None = None) -> None:
 
     st.set_page_config(page_title=page_title, layout=settings["page"]["layout"])
     st.title(page_title)
+    if app_options.allow_unsafe_pickle:
+        st.warning("Unsafe pickle rendering is enabled. Open only trusted pickle artifacts on this local dashboard.")
 
     db_path = resolve_database_path(settings["database"]["path"])
     show_intro(settings, db_path)
@@ -184,7 +193,7 @@ def main(settings_path: str | Path | None = None) -> None:
             show_pie_charts(filtered, metrics, plot_height)
         elif active_key == "run_detail":
             show_tab_summary(filtered, settings, "run_detail", metrics)
-            show_run_detail(filtered, settings)
+            show_run_detail(filtered, settings, allow_unsafe_pickle=app_options.allow_unsafe_pickle)
 
 
 if __name__ == "__main__":

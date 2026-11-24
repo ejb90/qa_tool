@@ -46,6 +46,14 @@ qa-tool serve --settings settings.toml
 
 See [Configuration](configuration.md) for database paths, column mappings, enabled tabs, summaries, and plot sizing. Additional Streamlit arguments can be passed after `--`, for example `qa-tool serve -- --server.port=8600`.
 
+Pickle artifact previews are disabled by default because deserializing a pickle can execute arbitrary Python code on the dashboard server. For a local dashboard containing only artifacts you trust, enable them explicitly:
+
+```bash
+qa-tool serve --allow-unsafe-pickle
+```
+
+The option forces Streamlit to bind to `127.0.0.1` and rejects an explicitly public server address. Do not use it for a hosted or shared dashboard. Without it, pickle artifacts can be downloaded but are never loaded by the web application.
+
 ## Navigation and loading
 
 The top tabs remain available on every page. The **Overview** splash page shows only stored summary quantities and navigation cards. Detailed runs are loaded only after you open another tab, keeping the initial page responsive even for a large database.
@@ -106,7 +114,7 @@ The page merges all configured `[archive].search_paths`, so local and shared arc
 
 ## Artifacts
 
-The app combines `artifact` from the run row with `artifact_root` when locating local files. Parquet files with a time-like column are plotted as time series. Archive artifacts are unpacked safely into a temporary location before inspection.
+The app combines `artifact` from the run row with `artifact_root` when locating local files. Parquet files with a time-like column are plotted as time series. Archive artifacts are unpacked safely into a temporary location before inspection. Pickle files inside directories or archives follow the same disabled-by-default policy as standalone pickle artifacts.
 
 !!! note
 

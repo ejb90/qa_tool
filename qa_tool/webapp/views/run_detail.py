@@ -11,7 +11,12 @@ from packaging.version import Version
 from qa_tool.webapp.artifacts import run_display_name, run_option_match_index, show_run_artifacts
 
 
-def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
+def show_run_detail(
+    filtered: pd.DataFrame,
+    settings: dict[str, Any],
+    *,
+    allow_unsafe_pickle: bool = False,
+) -> None:
     """Handle show run detail."""
     if filtered.empty:
         st.info("No runs match the current filters.")
@@ -38,4 +43,8 @@ def show_run_detail(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
     details = selected_run.to_frame(name="value").reset_index().rename(columns={"index": "field"})
     st.dataframe(details, use_container_width=True, hide_index=True)
 
-    show_run_artifacts(selected_run, settings["database"].get("artifact_root", ""))
+    show_run_artifacts(
+        selected_run,
+        settings["database"].get("artifact_root", ""),
+        allow_unsafe_pickle=allow_unsafe_pickle,
+    )

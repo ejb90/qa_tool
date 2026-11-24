@@ -91,9 +91,33 @@ def test_serve_forwards_settings_and_streamlit_arguments(tmp_path: Path, monkeyp
 
     monkeypatch.setattr("qa_tool.cli.cli.launch_webapp", fake_launch)
 
-    main(["serve", "--settings", str(settings_path), "--", "--server.port=8600"])
+    main(
+        [
+            "serve",
+            "--settings",
+            str(settings_path),
+            "--allow-unsafe-pickle",
+            "--",
+            "--server.port=8600",
+        ]
+    )
 
-    assert captured_arguments == ["--server.port=8600", "--", "--settings", str(settings_path)]
+    assert captured_arguments == [
+        "--server.port=8600",
+        "--server.address=127.0.0.1",
+        "--",
+        "--settings",
+        str(settings_path),
+        "--allow-unsafe-pickle",
+    ]
+
+
+def test_serve_restricts_unsafe_pickle_to_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsafe pickle rendering cannot be launched on a public bind address."""
+    monkeypatch.setattr("qa_tool.cli.cli.launch_webapp", lambda _: 0)
+
+    with pytest.raises(SystemExit, match="1"):
+        main(["serve", "--allow-unsafe-pickle", "--", "--server.address=0.0.0.0"])
 
 
 def test_default_formats_do_not_require_png_dependencies(database_path: Path, tmp_path: Path) -> None:

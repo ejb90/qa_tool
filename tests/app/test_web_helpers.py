@@ -16,6 +16,7 @@ from qa_tool.webapp.artifacts import (
     find_time_column,
     first_local_artifact_path,
     is_tar_artifact,
+    load_pickle_artifact,
     material_column,
     parquet_files_for_run,
     parquet_plot_key,
@@ -136,6 +137,28 @@ def test_tar_helpers_accept_safe_members_and_reject_traversal(tmp_path: Path) ->
         archive.addfile(member, io.BytesIO())
     with tarfile.open(unsafe_tar) as archive, pytest.raises(ValueError, match="Unsafe path"):
         safe_extract_tar(archive, destination)
+
+
+def test_pickle_loading_requires_explicit_unsafe_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pickle deserialization is unavailable unless local CLI use opts in."""
+    pickle_path = tmp_path / "artifact.pkl"
+    frame = pd.DataFrame({"value": [1.5]})
+    frame.to_pickle(pickle_path)
+    called = False
+    pandas_read_pickle = pd.read_pickle
+
+    def tracked_read_pickle(path: Path) -> object:
+        nonlocal called
+        called = True
+        return pandas_read_pickle(path)
+
+    monkeypatch.setattr(pd, "read_pickle", tracked_read_pickle)
+
+    with pytest.raises(ValueError, match="Pickle loading is disabled"):
+        load_pickle_artifact(pickle_path)
+    assert not called
+    assert load_pickle_artifact(pickle_path, allow_unsafe_pickle=True).equals(frame)
+    assert called
 
 
 def test_web_comparison_and_export_helpers_round_trip() -> None:

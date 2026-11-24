@@ -204,12 +204,35 @@ def ingest(artifact_path: Path, metadata: Path | None, settings: Path | None, da
 
 @cli.command("serve", context_settings={"ignore_unknown_options": True})
 @click.option("--settings", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--allow-unsafe-pickle",
+    is_flag=True,
+    help="Render trusted pickle artifacts. Use only for a local dashboard.",
+)
 @click.argument("streamlit_args", nargs=-1, type=click.UNPROCESSED)
-def serve(settings: Path | None, streamlit_args: tuple[str, ...]) -> None:
+def serve(settings: Path | None, allow_unsafe_pickle: bool, streamlit_args: tuple[str, ...]) -> None:
     """Launch the Streamlit dashboard."""
     arguments = list(streamlit_args)
+    if allow_unsafe_pickle:
+        address = next(
+            (argument.partition("=")[2] for argument in arguments if argument.startswith("--server.address=")),
+            None,
+        )
+        if "--server.address" in arguments:
+            address_index = arguments.index("--server.address")
+            address = arguments[address_index + 1] if address_index + 1 < len(arguments) else ""
+        if address not in {None, "127.0.0.1", "localhost", "::1"}:
+            raise click.ClickException("Unsafe pickle rendering is restricted to a loopback server address.")
+        if address is None:
+            arguments.append("--server.address=127.0.0.1")
+
+    app_arguments: list[str] = []
     if settings is not None:
-        arguments.extend(["--", "--settings", str(settings)])
+        app_arguments.extend(["--settings", str(settings)])
+    if allow_unsafe_pickle:
+        app_arguments.append("--allow-unsafe-pickle")
+    if app_arguments:
+        arguments.extend(["--", *app_arguments])
     exit_code = launch_webapp(arguments)
     if exit_code:
         raise click.ClickException(f"Streamlit exited with status {exit_code}.")
