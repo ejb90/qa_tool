@@ -13,15 +13,6 @@ This document records the outstanding work from the project-wide review performe
 
 Completion criterion: a CI job can compare two run collections, publish a useful report, and fail solely from a configured QA regression.
 
-### Avoid loading the complete database into memory
-
-- [ ] Replace unconditional `SELECT *` loading with projected and filtered queries.
-- [ ] Add pagination or bounded result windows for large run tables.
-- [ ] Push filtering and aggregation into DuckDB where practical.
-- [ ] Define and test a representative database-size target.
-
-Completion criterion: the dashboard remains responsive at the agreed target size without loading every row and artifact metric into one pandas DataFrame.
-
 ### Constrain artifact access and resource use
 
 - [ ] Resolve local artifact paths against configured roots and reject paths that escape them.

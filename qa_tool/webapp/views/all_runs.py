@@ -4,50 +4,55 @@ from __future__ import annotations
 
 from typing import Any
 
-import pandas as pd
 import streamlit as st
 
+from qa_tool.webapp.data import (
+    DatabaseRevision,
+    RunFilters,
+    RunSchema,
+    count_runs,
+    load_runs,
+    show_downloads,
+)
 
-def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
-    """Handle show all runs."""
+
+def show_all_runs(
+    db_path: str,
+    model_column: str,
+    version_column: str,
+    revision: DatabaseRevision,
+    generation: int,
+    filters: RunFilters,
+    schema: RunSchema,
+    settings: dict[str, Any],
+) -> None:
+    """Query and display one database-backed page of matching runs."""
     st.subheader("Runs")
-    if filtered.empty:
-        st.info("No runs match the current filters.")
-        return
-
-    searchable_columns = [
-        column for column in ["uid", "name", "model", "version", "artifact"] if column in filtered.columns
-    ]
     search_text = st.text_input(
         "Search runs",
         placeholder="UID, name, model, version, artifact...",
         key="all_runs_search",
     ).strip()
-    table_data = filtered.sort_values("date", ascending=False) if "date" in filtered.columns else filtered
-    if search_text and searchable_columns:
-        search_mask = pd.Series(False, index=filtered.index)
-        for column in searchable_columns:
-            search_mask |= (
-                filtered[column]
-                .fillna("")
-                .astype(str)
-                .str.contains(
-                    search_text,
-                    case=False,
-                    regex=False,
-                    na=False,
-                )
-            )
-        table_data = filtered[search_mask]
-
-    if table_data.empty:
-        st.info("No runs match the table search.")
-        return
-
     configured_columns = settings.get("tables", {}).get("all_runs", {}).get("columns", [])
-    visible_columns = [column for column in configured_columns if column in table_data.columns]
-    if visible_columns:
-        table_data = table_data.loc[:, visible_columns]
+    visible_columns = tuple(column for column in configured_columns if column in schema.columns) or schema.columns
+    searchable_columns = tuple(
+        source
+        for column in ("uid", "name", "model", "version", "artifact")
+        if (source := schema.source_for(column)) is not None
+    )
+    total_rows = count_runs(
+        db_path,
+        model_column,
+        version_column,
+        revision,
+        generation,
+        filters,
+        search_text,
+        searchable_columns,
+    )
+    if total_rows == 0:
+        st.info("No runs match the current filters and table search.")
+        return
 
     pagination_columns = st.columns([1, 1, 3])
     page_size = pagination_columns[0].selectbox(
@@ -56,7 +61,7 @@ def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
         index=1,
         key="all_runs_page_size",
     )
-    page_count = max(1, (len(table_data) - 1) // page_size + 1)
+    page_count = max(1, (total_rows - 1) // page_size + 1)
     page_number = pagination_columns[1].number_input(
         "Page",
         min_value=1,
@@ -66,9 +71,21 @@ def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
         key="all_runs_page_number",
     )
     start_index = (page_number - 1) * page_size
-    end_index = min(start_index + page_size, len(table_data))
-    page_data = table_data.iloc[start_index:end_index]
-    pagination_columns[2].caption(f"Showing {start_index + 1:,}-{end_index:,} of {len(table_data):,} runs")
+    end_index = min(start_index + page_size, total_rows)
+    page_data = load_runs(
+        db_path,
+        model_column,
+        version_column,
+        revision,
+        generation,
+        visible_columns,
+        filters,
+        page_size,
+        start_index,
+        search_text,
+        searchable_columns,
+    )
+    pagination_columns[2].caption(f"Showing {start_index + 1:,}-{end_index:,} of {total_rows:,} runs")
 
     st.dataframe(
         page_data,
@@ -83,3 +100,4 @@ def show_all_runs(filtered: pd.DataFrame, settings: dict[str, Any]) -> None:
             "error": st.column_config.NumberColumn("Error", format="%.5f"),
         },
     )
+    show_downloads(page_data, label="current page")

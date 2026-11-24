@@ -85,6 +85,7 @@ def show_summary(
     top_items: list[str],
     metrics: list[str],
     aggregations: list[str],
+    statistics: dict[str, Any] | None = None,
 ) -> None:
     """Handle show summary."""
     top_items = [item for item in top_items if item in TOP_SUMMARY_LABELS]
@@ -92,11 +93,11 @@ def show_summary(
         top_columns = st.columns(min(4, len(top_items)))
         for index, item in enumerate(top_items):
             if item == "runs":
-                value = len(filtered)
+                value = statistics["runs"] if statistics is not None else len(filtered)
             elif item == "versions":
-                value = filtered["version"].nunique()
+                value = statistics["versions"] if statistics is not None else filtered["version"].nunique()
             elif item == "models":
-                value = filtered["model"].nunique()
+                value = statistics["models"] if statistics is not None else filtered["model"].nunique()
             else:
                 value = "n/a"
             top_columns[index % len(top_columns)].metric(TOP_SUMMARY_LABELS[item], value)
@@ -106,7 +107,7 @@ def show_summary(
         return
 
     summary_columns = st.columns(min(4, len(summary_items)))
-    if filtered.empty:
+    if filtered.empty and statistics is None:
         for index, (metric, aggregation) in enumerate(summary_items):
             label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
             summary_columns[index % len(summary_columns)].metric(label, "n/a")
@@ -114,8 +115,13 @@ def show_summary(
 
     for index, (metric, aggregation) in enumerate(summary_items):
         label = f"{SUMMARY_AGGREGATIONS[aggregation]} {metric}"
-        value = getattr(filtered[metric], aggregation)()
-        summary_columns[index % len(summary_columns)].metric(label, f"{value:.4g}")
+        value = (
+            statistics[f"{aggregation}_{metric}"]
+            if statistics is not None
+            else getattr(filtered[metric], aggregation)()
+        )
+        formatted_value = "n/a" if value is None else f"{value:.4g}"
+        summary_columns[index % len(summary_columns)].metric(label, formatted_value)
 
 
 def show_stored_summary(
@@ -170,6 +176,7 @@ def show_tab_summary(
     settings: dict[str, Any],
     tab_key: str,
     available_metrics: list[str],
+    statistics: dict[str, Any] | None = None,
 ) -> None:
     """Handle show tab summary."""
     top_items, summary_metrics, summary_aggregations = tab_summary_options(
@@ -177,7 +184,7 @@ def show_tab_summary(
         tab_key,
         available_metrics,
     )
-    show_summary(filtered, top_items, summary_metrics, summary_aggregations)
+    show_summary(filtered, top_items, summary_metrics, summary_aggregations, statistics)
 
 
 def modified_filtered_runs(filtered: pd.DataFrame, tab_key: str) -> pd.DataFrame:

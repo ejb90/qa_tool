@@ -11,7 +11,16 @@ from streamlit.testing.v1 import AppTest
 
 from qa_tool.core.archive import create_comparison_archive
 from qa_tool.webapp.app import resolve_database_path
-from qa_tool.webapp.data import clear_database_caches, database_revision, load_run_summary, load_runs
+from qa_tool.webapp.data import (
+    RunFilters,
+    clear_database_caches,
+    count_runs,
+    database_revision,
+    load_run_schema,
+    load_run_statistics,
+    load_run_summary,
+    load_runs,
+)
 from qa_tool.webapp.settings import load_settings
 
 APP_PATH = Path(__file__).resolve().parents[2] / "qa_tool" / "webapp" / "app.py"
@@ -132,6 +141,57 @@ def test_promoted_database_revision_bypasses_cached_runs(tmp_path: Path) -> None
 
     assert first_runs.loc[0, "score"] == 1.5
     assert second_runs.loc[0, "score"] == 7.5
+
+
+def test_million_row_database_queries_are_projected_filtered_and_bounded(tmp_path: Path) -> None:
+    """The representative large database never becomes one complete dashboard DataFrame."""
+    database_path = tmp_path / "large.duckdb"
+    with duckdb.connect(str(database_path)) as database:
+        database.execute(
+            """
+            CREATE TABLE runs AS
+            SELECT
+                'run-' || i AS uid,
+                'model-' || (i % 10) AS device,
+                'v' || (i % 4) AS release,
+                TIMESTAMP '2026-01-01' + i * INTERVAL 1 SECOND AS date,
+                CAST(i AS DOUBLE) AS score,
+                repeat('payload-', 8) AS artifact_payload
+            FROM range(1000000) AS generated(i)
+            """
+        )
+    revision = database_revision(database_path)
+    filters = RunFilters(models=("model-1",), versions=("v1", "v3"))
+
+    schema = load_run_schema(str(database_path), "device", "release", revision, 0)
+    matching_rows = count_runs(str(database_path), "device", "release", revision, 0, filters)
+    page = load_runs(
+        str(database_path),
+        "device",
+        "release",
+        revision,
+        0,
+        ("uid", "model", "version", "date", "score"),
+        filters,
+        250,
+    )
+    statistics = load_run_statistics(
+        str(database_path),
+        "device",
+        "release",
+        revision,
+        0,
+        filters,
+        ("score",),
+    )
+
+    assert schema.metrics == ("score",)
+    assert matching_rows == 100_000
+    assert len(page) == 250
+    assert page.columns.tolist() == ["uid", "model", "version", "date", "score"]
+    assert "artifact_payload" not in page
+    assert statistics["runs"] == 100_000
+    assert statistics["models"] == 1
 
 
 def test_app_loads_alias_columns_from_duckdb(

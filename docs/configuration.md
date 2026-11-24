@@ -38,13 +38,14 @@ layout = "wide"
 path = "results/runs.duckdb"
 artifact_root = "./store"
 cache_ttl_seconds = 60
+max_query_rows = 50000
 
 [database.columns]
 model = "device"
 version = "release"
 
 [tables.all_runs]
-columns = ["uid", "device", "release", "date", "density", "artifact"]
+columns = ["uid", "model", "version", "date", "density", "artifact"]
 
 [tabs]
 compare_run = true
@@ -70,6 +71,12 @@ The analysis layer uses canonical `model` and `version` names internally. `[data
 `[database].cache_ttl_seconds` bounds how long cached runs and summary data can remain stale after a user interaction. The default is 60 seconds. Set it to `0` to disable time-based expiry and rely on database revision detection plus the manual refresh control.
 
 The dashboard fingerprints the resolved database file using its path, filesystem identity, size, and modification time. Promoting an immutable snapshot through a symlink therefore changes the cache key immediately. The TTL is a fallback for environments where a change is not otherwise observable; it does not poll or modify DuckDB.
+
+### Dashboard query bounds
+
+`[database].max_query_rows` limits the detailed rows materialized by one analytical dashboard view. The default is 50,000. Shared model, version, and date filters are applied in DuckDB before this window is returned. When a selection is larger, the dashboard shows a warning and uses the most recent rows; narrow the filters to analyse the complete selection.
+
+**All Runs** is not limited to the first window. It uses a database-side count plus `LIMIT`/`OFFSET` pagination, and downloads contain only the current page. Summary cards are calculated over the complete filtered selection inside DuckDB, so their values remain exact without loading every run.
 
 ### Tables, tabs, and summaries
 

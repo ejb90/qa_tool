@@ -58,6 +58,8 @@ The option forces Streamlit to bind to `127.0.0.1` and rejects an explicitly pub
 
 The top tabs remain available on every page. The **Overview** splash page shows only stored summary quantities and navigation cards. Detailed runs are loaded only after you open another tab, keeping the initial page responsive even for a large database.
 
+Database-backed pages inspect the schema first, project only the columns needed by the active view, and apply the shared filters in DuckDB. **All Runs** uses database-backed pagination rather than loading the complete table. Other analytical views materialize at most `[database].max_query_rows` rows and warn when the filtered selection is larger; summary cards still use exact database-side aggregates. The supported representative target is one million run rows with the default 50,000-row analytical window.
+
 Every view has a stable URL using its configuration key, for example:
 
 ```text
@@ -102,7 +104,7 @@ Compare Versions presents base/test means and standard deviations, percentage di
 
 ## Filters and downloads
 
-Non-overview pages expose shared model, version, date, and metric filters. The All Runs tab can download the filtered rows as CSV, JSON, or a pandas pickle. Choose the table's columns and order in `[tables.all_runs].columns`.
+Non-overview pages expose shared model, version, date, and metric filters. The All Runs tab can download the current bounded page as CSV, JSON, or a pandas pickle. Choose the table's columns and order in `[tables.all_runs].columns`.
 
 ![All Runs page with shared sidebar filters and detailed run table](assets/webapp-all-runs.png){ loading=lazy }
 

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 # Streamlit executes an app file with its directory on sys.path. Add the
@@ -21,14 +22,17 @@ if str(PROJECT_ROOT) not in sys.path:
 from qa_tool.webapp.data import (  # noqa: E402
     DatabaseRevision,
     clear_database_caches,
+    count_runs,
     database_cache_generation,
     database_cache_ttl_seconds,
+    database_max_query_rows,
     database_revision,
-    filter_runs,
+    load_run_filter_options,
+    load_run_schema,
+    load_run_statistics,
     load_run_summary,
     load_runs,
-    metric_columns,
-    show_downloads,
+    select_run_filters,
 )
 from qa_tool.webapp.settings import load_settings  # noqa: E402
 from qa_tool.webapp.summaries import (  # noqa: E402
@@ -181,6 +185,7 @@ def main(settings_path: str | Path | None = None) -> None:
     try:
         revision = database_revision(db_path)
         cache_ttl_seconds = database_cache_ttl_seconds(settings)
+        max_query_rows = database_max_query_rows(settings)
     except (OSError, ValueError) as error:
         st.error(f"Could not identify database revision: {error}")
         return
@@ -202,11 +207,20 @@ def main(settings_path: str | Path | None = None) -> None:
         return
 
     database_columns = settings["database"].get("columns", {})
+    model_column = database_columns.get("model", "model")
+    version_column = database_columns.get("version", "version")
     try:
-        runs = load_runs(
+        schema = load_run_schema(
             str(db_path),
-            database_columns.get("model", "model"),
-            database_columns.get("version", "version"),
+            model_column,
+            version_column,
+            revision,
+            cache_generation,
+        )
+        filter_options = load_run_filter_options(
+            str(db_path),
+            model_column,
+            version_column,
             revision,
             cache_generation,
         )
@@ -214,32 +228,95 @@ def main(settings_path: str | Path | None = None) -> None:
         st.error(f"Could not load database: {error}")
         return
 
-    metrics = metric_columns(runs)
-    filtered = filter_runs(runs, metrics, settings)
-    metrics = st.session_state.get("summary_metrics", metrics)
+    metrics = list(schema.metrics)
+    filters, metrics = select_run_filters(filter_options, metrics, settings)
+    try:
+        statistics = load_run_statistics(
+            str(db_path),
+            model_column,
+            version_column,
+            revision,
+            cache_generation,
+            filters,
+            tuple(metrics),
+        )
+    except Exception as error:
+        st.error(f"Could not summarize database: {error}")
+        return
 
     with active_tab:
         if active_key == "all_runs":
-            show_tab_summary(filtered, settings, "all_runs", metrics)
-            show_all_runs(filtered, settings)
-            show_downloads(filtered)
-        elif active_key == "versions":
+            show_tab_summary(pd.DataFrame(), settings, "all_runs", metrics, statistics)
+            show_all_runs(
+                str(db_path),
+                model_column,
+                version_column,
+                revision,
+                cache_generation,
+                filters,
+                schema,
+                settings,
+            )
+            return
+
+    base_columns = ["uid", "name", "model", "version", "date"]
+    view_columns = {
+        "versions": ["modified"],
+        "models": ["modified"],
+        "compare_run": ["artifact"],
+        "run_detail": ["artifact"],
+    }.get(active_key, [])
+    if active_key == "compare_collection":
+        view_columns = [column for column in schema.columns if column not in schema.metrics]
+    projected_columns = tuple(
+        dict.fromkeys(column for column in [*base_columns, *view_columns, *metrics] if column in schema.columns)
+    )
+    try:
+        matching_rows = count_runs(
+            str(db_path),
+            model_column,
+            version_column,
+            revision,
+            cache_generation,
+            filters,
+        )
+        filtered = load_runs(
+            str(db_path),
+            model_column,
+            version_column,
+            revision,
+            cache_generation,
+            projected_columns,
+            filters,
+            max_query_rows,
+        )
+    except Exception as error:
+        st.error(f"Could not query database: {error}")
+        return
+    if matching_rows > max_query_rows:
+        st.warning(
+            f"This view is using the {max_query_rows:,} most recent of {matching_rows:,} matching runs. "
+            "Narrow the shared filters to analyse the complete selection."
+        )
+
+    with active_tab:
+        if active_key == "versions":
             show_versions_tab(filtered, settings, metrics, plot_height)
         elif active_key == "models":
             show_models_tab(filtered, settings, metrics, plot_height)
         elif active_key == "compare_versions":
-            show_tab_summary(filtered, settings, "compare_versions", metrics)
+            show_tab_summary(filtered, settings, "compare_versions", metrics, statistics)
             show_version_comparison(filtered, settings, metrics, plot_height)
         elif active_key == "compare_collection":
-            show_tab_summary(filtered, settings, "compare_collection", metrics)
+            show_tab_summary(filtered, settings, "compare_collection", metrics, statistics)
             show_compare_collection(filtered, settings, metrics, plot_height)
         elif active_key == "compare_run":
             show_compare_run(filtered, settings, metrics, plot_height)
         elif active_key == "pie_charts":
-            show_tab_summary(filtered, settings, "pie_charts", metrics)
+            show_tab_summary(filtered, settings, "pie_charts", metrics, statistics)
             show_pie_charts(filtered, metrics, plot_height)
         elif active_key == "run_detail":
-            show_tab_summary(filtered, settings, "run_detail", metrics)
+            show_tab_summary(filtered, settings, "run_detail", metrics, statistics)
             show_run_detail(filtered, settings, allow_unsafe_pickle=app_options.allow_unsafe_pickle)
 
 

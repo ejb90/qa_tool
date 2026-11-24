@@ -7,6 +7,8 @@ path = "runs.duckdb"
 artifact_root = "./store"
 # Maximum stale interval after user interaction; zero uses revision detection only.
 cache_ttl_seconds = 60
+# Maximum detailed rows materialized by one non-paginated dashboard view.
+max_query_rows = 50000
 
 [database.columns]
 model = "model"

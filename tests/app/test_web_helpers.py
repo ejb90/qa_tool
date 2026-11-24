@@ -35,6 +35,7 @@ from qa_tool.webapp.compare import (
 from qa_tool.webapp.data import (
     database_cache_generation,
     database_cache_ttl_seconds,
+    database_max_query_rows,
     database_revision,
     dataframe_to_csv,
     dataframe_to_json,
@@ -236,8 +237,12 @@ def test_database_revision_and_cache_generation_track_promoted_files(tmp_path: P
     assert database_cache_generation(0, now=120.0) == 0
     assert database_cache_ttl_seconds({"database": {}}) == 60
     assert database_cache_ttl_seconds({"database": {"cache_ttl_seconds": 0}}) == 0
+    assert database_max_query_rows({"database": {}}) == 50_000
+    assert database_max_query_rows({"database": {"max_query_rows": 1_000}}) == 1_000
     with pytest.raises(ValueError, match="non-negative integer"):
         database_cache_ttl_seconds({"database": {"cache_ttl_seconds": -1}})
+    with pytest.raises(ValueError, match="positive integer"):
+        database_max_query_rows({"database": {"max_query_rows": 0}})
 
 
 def test_collection_and_cdf_helpers_cover_labels_and_masks() -> None:
