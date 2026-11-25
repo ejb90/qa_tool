@@ -17,6 +17,8 @@ qa_tool_archive/
     ├── comparison.parquet
     ├── report.html
     ├── checksums.sha256
+    ├── gate-policy.toml           # Gate snapshots only
+    ├── gate-results.xml           # Gate snapshots only
     └── artifacts/                 # Present when local run artifacts were captured
 ```
 
@@ -28,8 +30,14 @@ qa_tool_archive/
 | `comparison.parquet` | Typed calculated result table for exact programmatic reuse. |
 | `report.html` | Standalone human-readable report with Plotly embedded; it does not require a network connection or the live database. |
 | `checksums.sha256` | SHA-256 digest for every recorded file, including captured artifacts. |
+| `gate-policy.toml` | Exact policy evaluated by a `qa-tool check` command; present only for gate snapshots. |
+| `gate-results.xml` | Standard JUnit XML produced by the gate; present only for gate snapshots. |
 
 Aggregate version, model, and collection comparisons are fully reproducible from their recorded run rows. A run-to-run snapshot created by either interface also copies each resolved local artifact directory. Remote object-store artifacts are not downloaded automatically; their original reference remains in the recorded run row.
+
+Gate snapshots use archive schema version 3. Their manifest also records the
+gate status, pass/failure counts, and concise failure descriptions. Existing
+comparison snapshots remain readable and verifiable.
 
 ## Create snapshots from the CLI
 

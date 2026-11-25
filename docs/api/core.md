@@ -12,6 +12,10 @@
 
 ::: qa_tool.core.comparisons
 
+## Regression gates
+
+::: qa_tool.core.gates
+
 ## Comparison archives
 
 ::: qa_tool.core.archive

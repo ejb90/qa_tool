@@ -52,6 +52,7 @@ nav:
       - Command line: cli.md
       - Plots and exports: plotting.md
       - Comparison archives: comparison-archives.md
+      - Regression gates: regression-gates.md
       - Deployment: deployment.md
   - Python API:
       - Overview: api/index.md

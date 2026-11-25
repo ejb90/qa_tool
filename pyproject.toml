@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "duckdb>=1.4.3",
+    "junitparser>=5.0.3,<6",
     "pandas>=2.3.3",
     "packaging>=24.0",
     "plotly>=6.8.0",

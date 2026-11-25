@@ -1,17 +1,8 @@
 # QA Tool: Remaining Review Work
 
-This document records the outstanding work from the project-wide review performed on 24 November 2026. It excludes the ingestion type-safety, required-field validation, duplicate-UID recovery, and safe-by-default pickle changes already completed on `main`.
+This document records the outstanding work from the project-wide review performed on 24 November 2026. It excludes the ingestion type-safety, required-field validation, duplicate-UID recovery, safe-by-default pickle, bounded dashboard-query, and machine-readable regression-gate changes already completed or implemented for the next release.
 
 ## Priority 1: Product and operational correctness
-
-### Add a machine-readable regression gate
-
-- [ ] Define threshold rules for metrics, including absolute and percentage tolerances.
-- [ ] Add a command such as `qa-tool check` that exits non-zero when a regression exceeds policy.
-- [ ] Support JSON and JUnit output for CI systems.
-- [ ] Record the evaluated policy and result in preserved comparison snapshots.
-
-Completion criterion: a CI job can compare two run collections, publish a useful report, and fail solely from a configured QA regression.
 
 ### Constrain artifact access and resource use
 

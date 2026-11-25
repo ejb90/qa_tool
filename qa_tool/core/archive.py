@@ -22,7 +22,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 
-ARCHIVE_SCHEMA_VERSION = 2
+ARCHIVE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -127,12 +127,26 @@ code { background: #f2f4f7; padding: 0.1rem 0.25rem; }
         pio.to_html(figure, full_html=False, include_plotlyjs=index == 0) for index, figure in enumerate(figures)
     )
     plot_section = f"<h2>Plots</h2>{plot_html}" if plot_html else ""
+    gate = manifest.get("gate")
+    gate_section = ""
+    if isinstance(gate, dict):
+        failures = gate.get("failures", [])
+        failure_items = "".join(f"<li>{html.escape(str(failure))}</li>" for failure in failures)
+        failure_list = f"<ul>{failure_items}</ul>" if failure_items else "<p>No policy failures.</p>"
+        gate_section = (
+            "<h2>Regression gate</h2>"
+            f"<p><strong>Status:</strong> {html.escape(str(gate.get('status', 'unknown')).upper())}; "
+            f"passed: {html.escape(str(gate.get('passed', 0)))}; "
+            f"failed: {html.escape(str(gate.get('failed', 0)))}</p>"
+            f"{failure_list}"
+        )
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'><title>{title}</title>"
         f"<style>{styles}</style></head><body><h1>{title}</h1>"
         "<p>This report is rendered from an immutable QA Tool comparison snapshot.</p>"
         f"<div class='scroll'>{metadata.to_html(index=False, escape=True)}</div>"
+        f"{gate_section}"
         f"{plot_section}"
         f"<h2>Comparison</h2><div class='scroll'>{comparison.to_html(index=False, escape=True)}</div>"
         f"<h2>Recorded runs</h2><div class='scroll'>{runs.to_html(index=False, escape=True)}</div>"
@@ -152,9 +166,15 @@ def create_comparison_archive(
     metrics: list[str],
     parameters: dict[str, Any] | None = None,
     artifact_paths: dict[str, Path] | None = None,
+    gate_policy_text: str | None = None,
+    gate_results_xml: str | None = None,
+    gate_summary: dict[str, Any] | None = None,
     created_at: datetime | None = None,
 ) -> ComparisonArchive:
     """Atomically write an immutable comparison archive and return its identity."""
+    gate_values = (gate_policy_text, gate_results_xml, gate_summary)
+    if any(value is not None for value in gate_values) and not all(value is not None for value in gate_values):
+        raise ValueError("Gate archives require policy text, JUnit results, and a summary")
     timestamp = (created_at or datetime.now(UTC)).astimezone(UTC)
     snapshot_id = uuid4().hex[:12]
     root = Path(archive_root)
@@ -193,6 +213,14 @@ def create_comparison_archive(
             "checksums": "checksums.sha256",
         },
     }
+    if gate_summary is not None:
+        manifest["gate"] = gate_summary
+        manifest["files"].update(
+            {
+                "gate_policy": "gate-policy.toml",
+                "gate_results": "gate-results.xml",
+            }
+        )
 
     try:
         for run_uid, source in sorted((artifact_paths or {}).items()):
@@ -212,6 +240,9 @@ def create_comparison_archive(
         recorded_runs.to_parquet(temporary / "runs.parquet", index=False)
         comparison.to_csv(temporary / "comparison.csv", index=False)
         comparison.to_parquet(temporary / "comparison.parquet", index=False)
+        if gate_policy_text is not None and gate_results_xml is not None:
+            (temporary / "gate-policy.toml").write_text(gate_policy_text, encoding="utf-8")
+            (temporary / "gate-results.xml").write_text(gate_results_xml, encoding="utf-8")
         (temporary / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",

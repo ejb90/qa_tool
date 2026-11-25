@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import duckdb
 import pytest
+from junitparser import JUnitXml
 
 from qa_tool.cli.cli import main
 
@@ -63,12 +65,32 @@ def run_cli(database_path: Path, output_dir: Path, arguments: list[str]) -> None
     )
 
 
+def write_gate_policy(tmp_path: Path, tolerance: float = 1.0) -> Path:
+    """Write a one-metric policy for CLI gate tests."""
+    path = tmp_path / "gate.toml"
+    path.write_text(
+        "\n".join(
+            [
+                "schema_version = 1",
+                "[gate]",
+                'unmatched_models = "fail"',
+                "[metrics.density]",
+                'direction = "increase"',
+                f"absolute_tolerance = {tolerance}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_root_help_lists_unified_commands(capsys: pytest.CaptureFixture[str]) -> None:
     """The generic entry point advertises ingestion, serving, and analysis commands."""
     main(["--help"])
 
     output = capsys.readouterr().out
-    for command in ("ingest", "serve", "report", "compare", "archive"):
+    for command in ("ingest", "serve", "report", "compare", "check", "archive"):
         assert command in output
 
 
@@ -330,6 +352,159 @@ def test_terse_collection_comparison_combines_all_metrics(
     assert "error" in output
     assert "difference (%)" in output
     assert not output_dir.exists()
+
+
+def test_passing_version_gate_writes_clean_junit_and_snapshot(
+    database_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A passing gate emits only JUnit on stdout and preserves its evidence."""
+    archive_dir = tmp_path / "archive"
+    policy = write_gate_policy(tmp_path, tolerance=1.0)
+
+    main(
+        [
+            "check",
+            "versions",
+            "v1.0.0",
+            "v2.0.0",
+            "--policy",
+            str(policy),
+            "--database",
+            str(database_path),
+            "--archive-dir",
+            str(archive_dir),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    parsed = JUnitXml.fromfile(BytesIO(captured.out.encode()))
+    suite = next(iter(parsed))
+    snapshot = next(archive_dir.iterdir())
+    assert suite.failures == 0
+    assert "Saved gate snapshot" in captured.err
+    assert (snapshot / "gate-policy.toml").read_text(encoding="utf-8") == policy.read_text(encoding="utf-8")
+    assert (snapshot / "gate-results.xml").read_text(encoding="utf-8") == captured.out
+
+
+def test_failing_gate_writes_junit_and_archive_before_exit_one(database_path: Path, tmp_path: Path) -> None:
+    """Policy regressions use exit 1 without discarding their report or snapshot."""
+    archive_dir = tmp_path / "archive"
+    output = tmp_path / "gate.xml"
+    policy = write_gate_policy(tmp_path, tolerance=0.1)
+
+    with pytest.raises(SystemExit, match="1"):
+        main(
+            [
+                "check",
+                "versions",
+                "v1.0.0",
+                "v2.0.0",
+                "--policy",
+                str(policy),
+                "--database",
+                str(database_path),
+                "--archive-dir",
+                str(archive_dir),
+                "--output",
+                str(output),
+            ]
+        )
+
+    suite = next(iter(JUnitXml.fromfile(output)))
+    snapshot = next(archive_dir.iterdir())
+    assert suite.failures == 2
+    assert (snapshot / "gate-results.xml").read_text(encoding="utf-8") == output.read_text(encoding="utf-8")
+    assert "FAILED" in (snapshot / "report.html").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["models", "--base", "h2", "--test", "co2"],
+        ["collections", "--field", "git_branch", "--base", "main", "--test", "release"],
+    ],
+)
+def test_model_and_collection_gates_share_policy_evaluation(
+    arguments: list[str], database_path: Path, tmp_path: Path
+) -> None:
+    """Every collection-selection gate produces standard JUnit output."""
+    policy = write_gate_policy(tmp_path, tolerance=10.0)
+    output = tmp_path / f"{arguments[0]}.xml"
+    main(
+        [
+            "check",
+            *arguments,
+            "--policy",
+            str(policy),
+            "--database",
+            str(database_path),
+            "--archive-dir",
+            str(tmp_path / f"{arguments[0]}-archive"),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert next(iter(JUnitXml.fromfile(output))).failures == 0
+
+
+def test_gate_configuration_errors_exit_two_without_archive(database_path: Path, tmp_path: Path) -> None:
+    """Invalid policy inputs are distinct from evaluated policy failures."""
+    policy = tmp_path / "invalid.toml"
+    policy.write_text(
+        'schema_version = 1\n[metrics.missing]\ndirection = "increase"\nabsolute_tolerance = 1\n',
+        encoding="utf-8",
+    )
+    archive_dir = tmp_path / "archive"
+
+    with pytest.raises(SystemExit, match="2"):
+        main(
+            [
+                "check",
+                "versions",
+                "v1.0.0",
+                "v2.0.0",
+                "--policy",
+                str(policy),
+                "--database",
+                str(database_path),
+                "--archive-dir",
+                str(archive_dir),
+            ]
+        )
+
+    assert not archive_dir.exists()
+
+
+def test_gate_output_requires_force_for_atomic_replacement(database_path: Path, tmp_path: Path) -> None:
+    """Existing reports are preserved unless replacement is explicitly authorized."""
+    policy = write_gate_policy(tmp_path, tolerance=1.0)
+    output = tmp_path / "gate.xml"
+    output.write_text("original", encoding="utf-8")
+    archive_dir = tmp_path / "archive"
+    arguments = [
+        "check",
+        "versions",
+        "v1.0.0",
+        "v2.0.0",
+        "--policy",
+        str(policy),
+        "--database",
+        str(database_path),
+        "--archive-dir",
+        str(archive_dir),
+        "--output",
+        str(output),
+    ]
+
+    with pytest.raises(SystemExit, match="2"):
+        main(arguments)
+    assert output.read_text(encoding="utf-8") == "original"
+    assert not archive_dir.exists()
+
+    main([*arguments, "--force"])
+    assert next(iter(JUnitXml.fromfile(output))).failures == 0
+    assert len(list(archive_dir.iterdir())) == 1
 
 
 def test_compare_runs_and_archive_commands(

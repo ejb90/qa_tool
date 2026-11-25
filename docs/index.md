@@ -14,6 +14,7 @@ QA Tool is a small system for collecting, browsing, comparing, and exporting qua
 | Install optional PNG or documentation support | [Installation](installation.md) |
 | Choose plot and export formats | [Plots and exports](plotting.md) |
 | Preserve, verify, or recover a comparison | [Comparison archives](comparison-archives.md) |
+| Fail CI when metrics exceed a versioned tolerance policy | [Regression gates](regression-gates.md) |
 
 ## Key ideas
 

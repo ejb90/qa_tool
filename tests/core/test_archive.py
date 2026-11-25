@@ -103,6 +103,61 @@ def test_archive_verification_reports_tampering(tmp_path: Path) -> None:
     assert verify_comparison_archive(archive) == ["checksum mismatch: comparison.csv"]
 
 
+def test_gate_archive_records_policy_junit_summary_and_report(tmp_path: Path) -> None:
+    """Gate evidence is checksummed and visible in the immutable snapshot."""
+    runs = pd.DataFrame([{"uid": "one", "model": "h2", "density": 1.0}])
+    policy = 'schema_version = 1\n[metrics.density]\ndirection = "increase"\nabsolute_tolerance = 0.1\n'
+    junit = '<?xml version="1.0"?><testsuites tests="1" failures="1" />\n'
+    archive = create_comparison_archive(
+        tmp_path,
+        comparison_type="versions",
+        base_label="v1",
+        test_label="v2",
+        base_runs=runs,
+        test_runs=runs.assign(uid="two", density=2.0),
+        comparison=pd.DataFrame([{"model": "h2", "metric": "density", "percent_difference": 100.0}]),
+        metrics=["density"],
+        gate_policy_text=policy,
+        gate_results_xml=junit,
+        gate_summary={
+            "status": "failed",
+            "evaluated": 1,
+            "passed": 0,
+            "failed": 1,
+            "failures": ["h2/density: tolerance exceeded"],
+        },
+    )
+
+    manifest = json.loads((archive.path / "manifest.json").read_text(encoding="utf-8"))
+    assert (archive.path / "gate-policy.toml").read_text(encoding="utf-8") == policy
+    assert (archive.path / "gate-results.xml").read_text(encoding="utf-8") == junit
+    assert manifest["schema_version"] == 3
+    assert manifest["gate"]["status"] == "failed"
+    assert manifest["files"]["gate_results"] == "gate-results.xml"
+    assert "FAILED" in (archive.path / "report.html").read_text(encoding="utf-8")
+    assert verify_comparison_archive(archive) == []
+
+
+def test_gate_archive_requires_complete_evidence_before_creating_files(tmp_path: Path) -> None:
+    """Partial gate arguments fail before an archive directory is created."""
+    runs = pd.DataFrame([{"uid": "one", "model": "h2", "density": 1.0}])
+    archive_root = tmp_path / "archives"
+    with pytest.raises(ValueError, match="require policy text"):
+        create_comparison_archive(
+            archive_root,
+            comparison_type="versions",
+            base_label="v1",
+            test_label="v2",
+            base_runs=runs,
+            test_runs=runs,
+            comparison=pd.DataFrame([{"model": "h2", "metric": "density"}]),
+            metrics=["density"],
+            gate_policy_text="schema_version = 1\n",
+        )
+
+    assert not archive_root.exists()
+
+
 def test_local_artifact_paths_resolves_explicit_and_root_candidates(tmp_path: Path) -> None:
     """Local artifacts are found without resolving remote object-store references."""
     explicit = tmp_path / "explicit.parquet"

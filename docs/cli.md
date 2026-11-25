@@ -15,6 +15,10 @@ qa-tool
 │   ├── models
 │   ├── collections
 │   └── runs
+├── check
+│   ├── versions
+│   ├── models
+│   └── collections
 └── archive
     ├── list
     ├── show
@@ -53,6 +57,10 @@ The `report models`, `report versions`, and `report breakdown` commands accept:
 By default, the CLI produces a plot for **every numeric metric** and writes HTML, CSV, and Parquet. Use `--metric` to restrict a command to one metric. See [Plots and exports](plotting.md) for file naming, PNG installation, and format behaviour.
 
 Comparison commands instead write one complete, uniquely identified snapshot to `[archive].save_path` (which defaults to `qa_tool_archive/`). They accept `--database`, `--settings`, `--metric`, and `--archive-dir`. See [Comparison archives](comparison-archives.md) for the file format and recovery workflow.
+
+`check` commands evaluate version, model, or arbitrary collections against a
+TOML regression policy, emit standard JUnit XML, preserve the result, and use
+exit code 1 for an evaluated policy failure. See [Regression gates](regression-gates.md).
 
 Reports print a concise output destination by default. Use the top-level `--verbose` option to list every generated file, for example `qa-tool --verbose report models h2`.
 

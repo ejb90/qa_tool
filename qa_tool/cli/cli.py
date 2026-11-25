@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import tomllib
 from collections.abc import Callable, Sequence
 from functools import wraps
@@ -31,6 +32,7 @@ from qa_tool.core.comparisons import (
     build_model_comparison,
     build_run_scalar_comparison,
 )
+from qa_tool.core.gates import GateEvaluation, GatePolicy, evaluate_gate, gate_evaluation_junit, load_gate_policy
 from qa_tool.core.queries import load_runs, metric_columns, select_collection
 from qa_tool.core.settings import load_settings
 from qa_tool.ingest.core import ingest_run
@@ -116,6 +118,58 @@ def comparison_options(function: CommandCallback) -> CommandCallback:
     return cast(CommandCallback, callback)
 
 
+class GateCommandError(click.ClickException):
+    """Invalid gate configuration or input data."""
+
+    exit_code = 2
+
+
+def handle_gate_errors(
+    function: Callable[CallbackParams, CallbackResult],
+) -> Callable[CallbackParams, CallbackResult]:
+    """Map gate input failures to the documented exit code 2."""
+
+    @wraps(function)
+    def wrapped(*args: CallbackParams.args, **kwargs: CallbackParams.kwargs) -> CallbackResult:
+        try:
+            return function(*args, **kwargs)
+        except (FileNotFoundError, OSError, ValueError) as error:
+            raise GateCommandError(str(error)) from error
+
+    return wrapped
+
+
+def gate_options(function: CommandCallback) -> CommandCallback:
+    """Add policy, output, database, and archive options to gate commands."""
+    decorators = (
+        click.option(
+            "--policy",
+            type=click.Path(exists=True, dir_okay=False, path_type=Path),
+            required=True,
+            help="Versioned TOML regression policy.",
+        ),
+        click.option(
+            "--output",
+            type=click.Path(dir_okay=False, path_type=Path),
+            help="Write JUnit XML atomically instead of printing it to stdout.",
+        ),
+        click.option("--force", is_flag=True, help="Replace an existing JUnit output file."),
+        click.option("--database", type=click.Path(path_type=Path), help="Override the configured DuckDB path."),
+        click.option(
+            "--settings", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="Analysis settings TOML."
+        ),
+        click.option(
+            "--archive-dir",
+            type=click.Path(file_okay=False, path_type=Path),
+            help="Override the comparison archive directory from settings.",
+        ),
+    )
+    callback: Callable[..., Any] = function
+    for decorator in reversed(decorators):
+        callback = decorator(callback)
+    return cast(CommandCallback, callback)
+
+
 def print_saved_archive(archive: ComparisonArchive) -> None:
     """Print the identity and location of a newly saved archive."""
     Console().print(f"[bold green]Saved comparison {archive.snapshot_id}[/bold green]\n{archive.path}")
@@ -143,6 +197,156 @@ def load_command_runs(
     columns = database_settings.get("columns", {})
     runs = load_runs(database_path, columns.get("model", "model"), columns.get("version", "version"))
     return runs, metric_columns(runs), int(settings["plots"]["height"]), settings
+
+
+def load_command_gate_policy(policy_path: Path, available_metrics: list[str]) -> tuple[GatePolicy, str]:
+    """Load a gate policy and verify that its metrics exist in the database."""
+    policy, source = load_gate_policy(policy_path)
+    missing = sorted(set(policy.metric_names) - set(available_metrics))
+    if missing:
+        raise ValueError("Policy metric(s) are unavailable in the database: " + ", ".join(missing))
+    return policy, source
+
+
+def _write_gate_output(output: Path, contents: str, *, force: bool) -> None:
+    """Atomically write JUnit XML, refusing replacement unless requested."""
+    if output.exists() and not force:
+        raise ValueError(f"Output already exists: {output}. Use --force to replace it.")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            delete=False,
+        ) as temporary:
+            temporary.write(contents)
+            temporary_path = Path(temporary.name)
+        temporary_path.replace(output)
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _gate_summary(evaluation: GateEvaluation) -> dict[str, Any]:
+    """Return the compact gate evidence stored in an archive manifest."""
+    return {
+        "status": evaluation.status,
+        "evaluated": len(evaluation.results),
+        "passed": evaluation.passed,
+        "failed": evaluation.failed,
+        "failures": [
+            f"{result.model}/{result.metric}: {result.reason}"
+            for result in evaluation.results
+            if result.status == "failed"
+        ],
+    }
+
+
+def complete_gate(
+    *,
+    policy: GatePolicy,
+    policy_text: str,
+    comparison_type: str,
+    base_label: str,
+    test_label: str,
+    base_runs: pd.DataFrame,
+    test_runs: pd.DataFrame,
+    comparison: pd.DataFrame,
+    base_models: set[str],
+    test_models: set[str],
+    parameters: dict[str, Any],
+    archive_root: Path,
+    output: Path | None,
+    force: bool,
+) -> None:
+    """Evaluate, archive, emit JUnit, and exit non-zero for a regression."""
+    if output is not None and output.exists() and not force:
+        raise ValueError(f"Output already exists: {output}. Use --force to replace it.")
+    evaluation = evaluate_gate(comparison, policy, base_models=base_models, test_models=test_models)
+    junit = gate_evaluation_junit(evaluation)
+    archive = create_comparison_archive(
+        archive_root,
+        comparison_type=comparison_type,
+        base_label=base_label,
+        test_label=test_label,
+        base_runs=base_runs,
+        test_runs=test_runs,
+        comparison=comparison,
+        metrics=policy.metric_names,
+        parameters=parameters,
+        gate_policy_text=policy_text,
+        gate_results_xml=junit,
+        gate_summary=_gate_summary(evaluation),
+    )
+    if output is None:
+        click.echo(junit, nl=False)
+    else:
+        _write_gate_output(output, junit, force=force)
+        click.echo(f"Wrote JUnit report to {output}", err=True)
+    click.echo(f"Saved gate snapshot {archive.snapshot_id} at {archive.path}", err=True)
+    if evaluation.status == "failed":
+        raise click.exceptions.Exit(1)
+
+
+def version_comparison_data(
+    runs: pd.DataFrame,
+    base_version: str,
+    test_version: str,
+    metrics: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Select version collections and build their shared-model deltas."""
+    base_runs = runs[runs["version"] == base_version]
+    test_runs = runs[runs["version"] == test_version]
+    if base_runs.empty or test_runs.empty:
+        raise ValueError("Both version selections must match at least one run")
+    comparison = build_collection_metric_deltas(base_runs, base_version, test_runs, test_version, metrics)
+    if comparison.empty:
+        raise ValueError("No models are present in both selected versions")
+    return base_runs, test_runs, comparison
+
+
+def model_comparison_data(
+    runs: pd.DataFrame,
+    base_models: tuple[str, ...],
+    test_models: tuple[str, ...],
+    metrics: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Select model groups and build their aggregate deltas."""
+    base_runs = runs[runs["model"].isin(base_models)]
+    test_runs = runs[runs["model"].isin(test_models)]
+    if base_runs.empty or test_runs.empty:
+        raise ValueError("Both model selections must match at least one run")
+    comparison = build_model_comparison(runs, list(base_models), list(test_models), metrics)
+    return base_runs, test_runs, comparison
+
+
+def collection_comparison_data(
+    runs: pd.DataFrame,
+    field: str,
+    base_values: tuple[str, ...],
+    test_values: tuple[str, ...],
+    match_mode: str,
+    metrics: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Select arbitrary collections and build their shared-model deltas."""
+    base_runs = select_collection(runs, field, list(base_values), match_mode)
+    test_runs = select_collection(runs, field, list(test_values), match_mode)
+    if base_runs.empty or test_runs.empty:
+        raise ValueError("Both collection selections must match at least one run")
+    comparison = build_collection_metric_deltas(
+        base_runs,
+        ", ".join(base_values),
+        test_runs,
+        ", ".join(test_values),
+        metrics,
+    )
+    if comparison.empty:
+        raise ValueError("No models are present in both selected collections")
+    return base_runs, test_runs, comparison
 
 
 def prepare_analysis(
@@ -360,11 +564,7 @@ def compare_versions(
     """Compare two versions across their shared models."""
     runs, available_metrics, _, analysis_settings = load_command_runs(database, settings)
     metrics = commands.selected_metrics(metric, available_metrics)
-    base_runs = runs[runs["version"] == base_version]
-    test_runs = runs[runs["version"] == test_version]
-    comparison = build_collection_metric_deltas(base_runs, base_version, test_runs, test_version, metrics)
-    if comparison.empty:
-        raise ValueError("No models are present in both selected versions.")
+    base_runs, test_runs, comparison = version_comparison_data(runs, base_version, test_version, metrics)
     commands.print_dataframe(Console(), comparison, f"{test_version} minus {base_version}")
     print_saved_archive(
         create_comparison_archive(
@@ -396,11 +596,7 @@ def compare_models(
     """Compare aggregate values for two model groups."""
     runs, available_metrics, _, analysis_settings = load_command_runs(database, settings)
     metrics = commands.selected_metrics(metric, available_metrics)
-    base_runs = runs[runs["model"].isin(base_models)]
-    test_runs = runs[runs["model"].isin(test_models)]
-    if base_runs.empty or test_runs.empty:
-        raise ValueError("Both model selections must match at least one run.")
-    comparison = build_model_comparison(runs, list(base_models), list(test_models), metrics)
+    base_runs, test_runs, comparison = model_comparison_data(runs, base_models, test_models, metrics)
     commands.print_dataframe(Console(), comparison, f"Models {', '.join(test_models)} minus {', '.join(base_models)}")
     print_saved_archive(
         create_comparison_archive(
@@ -445,15 +641,11 @@ def compare_collections(
             console, runs, field, list(base_values), list(test_values), match_mode, metrics
         )
         return
-    base_runs = select_collection(runs, field, list(base_values), match_mode)
-    test_runs = select_collection(runs, field, list(test_values), match_mode)
-    if base_runs.empty or test_runs.empty:
-        raise ValueError("Both collection selections must match at least one run.")
     base_label = ", ".join(base_values)
     test_label = ", ".join(test_values)
-    comparison = build_collection_metric_deltas(base_runs, base_label, test_runs, test_label, metrics)
-    if comparison.empty:
-        raise ValueError("No models are present in both selected collections.")
+    base_runs, test_runs, comparison = collection_comparison_data(
+        runs, field, base_values, test_values, match_mode, metrics
+    )
     commands.print_dataframe(console, comparison, f"{test_label} minus {base_label}")
     print_saved_archive(
         create_comparison_archive(
@@ -520,6 +712,139 @@ def compare_runs(
                 analysis_settings["database"].get("artifact_root", ""),
             ),
         )
+    )
+
+
+@cli.group()
+def check() -> None:
+    """Evaluate collection comparisons against a regression policy."""
+
+
+@check.command("versions")
+@click.argument("base_version")
+@click.argument("test_version")
+@gate_options
+@handle_gate_errors
+def check_versions(
+    base_version: str,
+    test_version: str,
+    policy: Path,
+    output: Path | None,
+    force: bool,
+    database: Path | None,
+    settings: Path | None,
+    archive_dir: Path | None,
+) -> None:
+    """Gate a test version against a base version."""
+    runs, available_metrics, _, analysis_settings = load_command_runs(database, settings)
+    gate_policy, policy_text = load_command_gate_policy(policy, available_metrics)
+    base_runs, test_runs, comparison = version_comparison_data(
+        runs, base_version, test_version, gate_policy.metric_names
+    )
+    complete_gate(
+        policy=gate_policy,
+        policy_text=policy_text,
+        comparison_type="versions",
+        base_label=base_version,
+        test_label=test_version,
+        base_runs=base_runs,
+        test_runs=test_runs,
+        comparison=comparison,
+        base_models=set(base_runs["model"].dropna().astype(str)),
+        test_models=set(test_runs["model"].dropna().astype(str)),
+        parameters={"gate": True},
+        archive_root=comparison_archive_root(archive_dir, analysis_settings),
+        output=output,
+        force=force,
+    )
+
+
+@check.command("models")
+@click.option("--base", "base_models", multiple=True, required=True, help="Base model; repeat for several.")
+@click.option("--test", "test_models", multiple=True, required=True, help="Test model; repeat for several.")
+@gate_options
+@handle_gate_errors
+def check_models(
+    base_models: tuple[str, ...],
+    test_models: tuple[str, ...],
+    policy: Path,
+    output: Path | None,
+    force: bool,
+    database: Path | None,
+    settings: Path | None,
+    archive_dir: Path | None,
+) -> None:
+    """Gate aggregate test-model metrics against base models."""
+    runs, available_metrics, _, analysis_settings = load_command_runs(database, settings)
+    gate_policy, policy_text = load_command_gate_policy(policy, available_metrics)
+    base_runs, test_runs, comparison = model_comparison_data(runs, base_models, test_models, gate_policy.metric_names)
+    comparison.insert(0, "model", "aggregate")
+    complete_gate(
+        policy=gate_policy,
+        policy_text=policy_text,
+        comparison_type="models",
+        base_label=", ".join(base_models),
+        test_label=", ".join(test_models),
+        base_runs=base_runs,
+        test_runs=test_runs,
+        comparison=comparison,
+        base_models={"aggregate"},
+        test_models={"aggregate"},
+        parameters={"gate": True, "base_models": list(base_models), "test_models": list(test_models)},
+        archive_root=comparison_archive_root(archive_dir, analysis_settings),
+        output=output,
+        force=force,
+    )
+
+
+@check.command("collections")
+@click.option("--field", required=True, help="Database column used to select each collection.")
+@click.option("--base", "base_values", multiple=True, required=True, help="Base value; repeat for several.")
+@click.option("--test", "test_values", multiple=True, required=True, help="Test value; repeat for several.")
+@click.option("--match", "match_mode", type=MATCH_MODE, default="exact", show_default=True)
+@gate_options
+@handle_gate_errors
+def check_collections(
+    field: str,
+    base_values: tuple[str, ...],
+    test_values: tuple[str, ...],
+    match_mode: str,
+    policy: Path,
+    output: Path | None,
+    force: bool,
+    database: Path | None,
+    settings: Path | None,
+    archive_dir: Path | None,
+) -> None:
+    """Gate two arbitrary metadata-selected collections."""
+    runs, available_metrics, _, analysis_settings = load_command_runs(database, settings)
+    gate_policy, policy_text = load_command_gate_policy(policy, available_metrics)
+    base_label = ", ".join(base_values)
+    test_label = ", ".join(test_values)
+    base_runs, test_runs, comparison = collection_comparison_data(
+        runs, field, base_values, test_values, match_mode, gate_policy.metric_names
+    )
+    complete_gate(
+        policy=gate_policy,
+        policy_text=policy_text,
+        comparison_type="collections",
+        base_label=base_label,
+        test_label=test_label,
+        base_runs=base_runs,
+        test_runs=test_runs,
+        comparison=comparison,
+        base_models=set(base_runs["model"].dropna().astype(str)),
+        test_models=set(test_runs["model"].dropna().astype(str)),
+        parameters={
+            "gate": True,
+            "field": field,
+            "match": match_mode,
+            "base_values": list(base_values),
+            "test_values": list(test_values),
+        },
+        archive_root=comparison_archive_root(archive_dir, analysis_settings),
+        output=output,
+        force=force,
     )
 
 
@@ -662,7 +987,9 @@ def report_breakdown(
 def main(argv: Sequence[str] | None = None) -> None:
     """Run the command tree with optional explicit arguments for tests and modules."""
     try:
-        cli.main(args=list(argv) if argv is not None else None, prog_name="qa-tool", standalone_mode=False)
+        exit_code = cli.main(args=list(argv) if argv is not None else None, prog_name="qa-tool", standalone_mode=False)
+        if isinstance(exit_code, int) and exit_code:
+            raise SystemExit(exit_code)
     except click.ClickException as error:
         error.show()
         raise SystemExit(error.exit_code) from error
