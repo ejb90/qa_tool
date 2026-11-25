@@ -1,18 +1,8 @@
 # QA Tool: Remaining Review Work
 
-This document records the outstanding work from the project-wide review performed on 24 November 2026. It excludes the ingestion type-safety, required-field validation, duplicate-UID recovery, safe-by-default pickle, bounded dashboard-query, and machine-readable regression-gate changes already completed or implemented for the next release.
+This document records only the outstanding work from the project-wide review performed on 24 November 2026. It was reconciled against release `v0.5.0` on 25 November 2026; completed items have been removed.
 
 ## Priority 1: Product and operational correctness
-
-### Constrain artifact access and resource use
-
-- [ ] Resolve local artifact paths against configured roots and reject paths that escape them.
-- [ ] Treat database-supplied absolute paths, `uid`, and `name` values as untrusted path input.
-- [ ] Limit tar member count, total expanded size, individual file size, recursive file count, rendered rows, and plotted points.
-- [ ] Add hostile path, symlink, oversized archive, and decompression-bomb tests.
-- [ ] Document the artifact trust boundary.
-
-Completion criterion: database metadata cannot make the hosted application read outside approved roots or exhaust normal server resources through artifact inspection.
 
 ### Reconcile the Swarm example with the deployment guide
 

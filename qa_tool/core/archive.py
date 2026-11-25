@@ -22,6 +22,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 
+from qa_tool.core.artifacts import ArtifactLimits, iter_artifact_files, local_artifact_candidates
+
 ARCHIVE_SCHEMA_VERSION = 3
 
 
@@ -55,17 +57,11 @@ def _uid_values(runs: pd.DataFrame) -> list[str]:
 
 
 def local_artifact_paths(runs: pd.DataFrame, artifact_root: str | Path = "") -> dict[str, Path]:
-    """Resolve the first existing local artifact path for each recorded run."""
+    """Resolve confined local artifact paths for recorded runs."""
     resolved = {}
-    root = Path(artifact_root) if artifact_root else None
     for _, run in runs.iterrows():
         uid = str(run.get("uid", ""))
-        candidates = []
-        artifact = run.get("artifact")
-        if isinstance(artifact, str) and artifact and not artifact.startswith("s3://"):
-            candidates.append(Path(artifact))
-        if root is not None:
-            candidates.extend([root / uid, root / str(run.get("name", uid))])
+        candidates = local_artifact_candidates(run, artifact_root)
         if path := next((candidate for candidate in candidates if candidate.exists()), None):
             resolved[uid] = path
     return resolved
@@ -166,12 +162,14 @@ def create_comparison_archive(
     metrics: list[str],
     parameters: dict[str, Any] | None = None,
     artifact_paths: dict[str, Path] | None = None,
+    artifact_limits: ArtifactLimits | None = None,
     gate_policy_text: str | None = None,
     gate_results_xml: str | None = None,
     gate_summary: dict[str, Any] | None = None,
     created_at: datetime | None = None,
 ) -> ComparisonArchive:
     """Atomically write an immutable comparison archive and return its identity."""
+    artifact_limits = artifact_limits or ArtifactLimits()
     gate_values = (gate_policy_text, gate_results_xml, gate_summary)
     if any(value is not None for value in gate_values) and not all(value is not None for value in gate_values):
         raise ValueError("Gate archives require policy text, JUnit results, and a summary")
@@ -229,11 +227,19 @@ def create_comparison_archive(
                 continue
             relative_destination = Path("artifacts") / _safe_name(run_uid)
             artifact_destination = temporary / relative_destination
-            if source.is_dir():
-                shutil.copytree(source, artifact_destination)
-            else:
-                artifact_destination.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, artifact_destination / source.name)
+            artifact_destination.mkdir(parents=True, exist_ok=True)
+            total_bytes = 0
+            source_root = source.resolve() if source.is_dir() else source.resolve().parent
+            for artifact_file in iter_artifact_files(source, artifact_limits):
+                total_bytes += artifact_file.stat().st_size
+                if total_bytes > artifact_limits.max_expanded_bytes:
+                    raise ValueError(
+                        f"Artifact selection exceeds max_expanded_bytes ({artifact_limits.max_expanded_bytes})"
+                    )
+                relative_file = artifact_file.relative_to(source_root)
+                destination_file = artifact_destination / relative_file
+                destination_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(artifact_file, destination_file)
             manifest["artifacts"].append(
                 {"run_uid": str(run_uid), "source": str(source), "path": relative_destination.as_posix()}
             )

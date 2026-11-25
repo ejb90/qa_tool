@@ -22,6 +22,7 @@ from qa_tool.core.archive import (
     local_artifact_paths,
     verify_comparison_archive,
 )
+from qa_tool.core.artifacts import ArtifactLimits
 
 
 def test_archive_round_trip_includes_inputs_artifacts_and_checksums(
@@ -160,9 +161,11 @@ def test_gate_archive_requires_complete_evidence_before_creating_files(tmp_path:
 
 def test_local_artifact_paths_resolves_explicit_and_root_candidates(tmp_path: Path) -> None:
     """Local artifacts are found without resolving remote object-store references."""
-    explicit = tmp_path / "explicit.parquet"
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    explicit = artifact_root / "explicit.parquet"
     explicit.touch()
-    rooted = tmp_path / "artifacts" / "second"
+    rooted = artifact_root / "second"
     rooted.mkdir(parents=True)
     runs = pd.DataFrame(
         [
@@ -172,7 +175,40 @@ def test_local_artifact_paths_resolves_explicit_and_root_candidates(tmp_path: Pa
         ]
     )
 
-    assert local_artifact_paths(runs, tmp_path / "artifacts") == {"first": explicit, "second": rooted}
+    assert local_artifact_paths(runs, artifact_root) == {"first": explicit, "second": rooted}
+
+
+def test_archive_artifact_copy_rejects_symlinks_and_total_size(tmp_path: Path) -> None:
+    """Snapshot creation cannot follow links or copy beyond the configured budget."""
+    runs = pd.DataFrame([{"uid": "one", "model": "h2", "density": 1.0}])
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    (artifacts / "linked.txt").symlink_to(outside)
+    arguments = {
+        "comparison_type": "runs",
+        "base_label": "one",
+        "test_label": "two",
+        "base_runs": runs,
+        "test_runs": runs.assign(uid="two"),
+        "comparison": pd.DataFrame([{"metric": "density", "bottom_minus_top": 0.0}]),
+        "metrics": ["density"],
+        "artifact_paths": {"one": artifacts},
+    }
+
+    with pytest.raises(ValueError, match="symlinks are not allowed"):
+        create_comparison_archive(tmp_path / "linked-archives", **arguments)
+
+    (artifacts / "linked.txt").unlink()
+    (artifacts / "one.txt").write_bytes(b"12")
+    (artifacts / "two.txt").write_bytes(b"34")
+    with pytest.raises(ValueError, match="max_expanded_bytes"):
+        create_comparison_archive(
+            tmp_path / "oversized-archives",
+            **arguments,
+            artifact_limits=ArtifactLimits(max_expanded_bytes=3),
+        )
 
 
 def test_archive_discovery_ignores_invalid_manifests_and_checks_prefixes(tmp_path: Path) -> None:

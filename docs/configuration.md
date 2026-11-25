@@ -40,6 +40,14 @@ artifact_root = "./store"
 cache_ttl_seconds = 60
 max_query_rows = 50000
 
+[artifacts]
+max_archive_members = 1000
+max_expanded_bytes = 536870912
+max_file_bytes = 134217728
+max_recursive_files = 1000
+max_render_rows = 10000
+max_plot_points = 10000
+
 [database.columns]
 model = "device"
 version = "release"
@@ -77,6 +85,21 @@ The dashboard fingerprints the resolved database file using its path, filesystem
 `[database].max_query_rows` limits the detailed rows materialized by one analytical dashboard view. The default is 50,000. Shared model, version, and date filters are applied in DuckDB before this window is returned. When a selection is larger, the dashboard shows a warning and uses the most recent rows; narrow the filters to analyse the complete selection.
 
 **All Runs** is not limited to the first window. It uses a database-side count plus `LIMIT`/`OFFSET` pagination, and downloads contain only the current page. Summary cards are calculated over the complete filtered selection inside DuckDB, so their values remain exact without loading every run.
+
+### Artifact trust boundary and limits
+
+Local artifact inspection is disabled unless `[database].artifact_root` is configured. The dashboard treats the database `artifact`, `uid`, and `name` fields as untrusted input: relative artifact paths may be relative to the process working directory or to `artifact_root`, but every canonical target must be inside that root. Absolute paths are accepted only inside the same root, while paths or symbolic links that escape it are ignored or rejected. `s3://` values are displayed as remote locations and are not opened by the dashboard.
+
+The `[artifacts]` limits bound work performed by the hosted process:
+
+- `max_archive_members` limits all entries in a tar archive.
+- `max_expanded_bytes` limits the combined declared size of extracted regular files.
+- `max_file_bytes` limits each inspected or extracted file.
+- `max_recursive_files` limits files discovered in a directory or archive.
+- `max_render_rows` limits CSV, JSON Lines, and Parquet previews.
+- `max_plot_points` limits points supplied to one plot.
+
+Tar inspection rejects traversal paths, symbolic and hard links, devices, and other special members before extraction. Directory inspection does not follow symbolic links. These controls protect the server from database-directed file access and accidental or hostile resource exhaustion; they do not make untrusted pickle deserialization safe. Pickle preview remains disabled unless the server is started locally with `--allow-unsafe-pickle`.
 
 ### Tables, tabs, and summaries
 

@@ -11,8 +11,18 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import pyarrow.parquet as pq
 import streamlit as st
 import streamlit.components.v1 as components
+
+from qa_tool.core.artifacts import (
+    ArtifactLimits,
+    artifact_root_path,
+    check_artifact_file,
+    iter_artifact_files,
+    local_artifact_candidates,
+    remote_artifact_location,
+)
 
 TIME_COLUMN_PATTERN = re.compile(r"(^|[\s_-])time([\s_-]|$)|^t$", re.IGNORECASE)
 MATERIAL_COLUMN_PATTERN = re.compile(r"^materials?$", re.IGNORECASE)
@@ -39,20 +49,24 @@ def run_option_match_index(run_options: pd.DataFrame, pasted_id: str) -> int | N
 
 
 def run_artifact_candidates(row: pd.Series, artifact_root: str) -> list[Path | str]:
-    """Handle run artifact candidates."""
+    """Return remote locations and confined local candidates for a run."""
     candidates: list[Path | str] = []
-    artifact = row.get("artifact")
-    if isinstance(artifact, str) and artifact:
-        candidates.append(artifact if artifact.startswith("s3://") else Path(artifact))
-
-    if artifact_root:
-        root = Path(artifact_root)
-        candidates.extend([root / str(row["uid"]), root / str(row["name"])])
+    if remote := remote_artifact_location(row):
+        candidates.append(remote)
+    candidates.extend(local_artifact_candidates(row, artifact_root))
     return candidates
 
 
-def first_local_artifact_path(row: pd.Series, artifact_root: str) -> Path | None:
-    """Handle first local artifact path."""
+def first_local_artifact_path(
+    row: pd.Series,
+    artifact_root: str,
+    limits: ArtifactLimits | None = None,
+) -> Path | None:
+    """Return the first existing, confined local artifact candidate."""
+    limits = limits or ArtifactLimits()
+    root = artifact_root_path(artifact_root)
+    if root is None:
+        return None
     for candidate in run_artifact_candidates(row, artifact_root):
         if isinstance(candidate, str) and candidate.startswith("s3://"):
             continue
@@ -64,22 +78,27 @@ def first_local_artifact_path(row: pd.Series, artifact_root: str) -> Path | None
         metadata_path = parent / "metadata.json"
         if metadata_path.exists() and any(parent.glob("*.parquet")):
             try:
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+                safe_metadata_path = check_artifact_file(metadata_path, root, limits)
+                metadata = json.loads(safe_metadata_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, json.JSONDecodeError):
                 continue
             if str(metadata.get("uid", "")) == str(row.get("uid", "")):
                 return parent
     return None
 
 
-def parquet_files_for_run(row: pd.Series, artifact_root: str) -> dict[str, Path]:
-    """Handle parquet files for run."""
-    artifact_path = first_local_artifact_path(row, artifact_root)
+def parquet_files_for_run(
+    row: pd.Series,
+    artifact_root: str,
+    limits: ArtifactLimits | None = None,
+) -> dict[str, Path]:
+    """Return bounded Parquet artifacts for a run."""
+    limits = limits or ArtifactLimits()
+    artifact_path = first_local_artifact_path(row, artifact_root, limits)
     if artifact_path is None:
         return {}
-    if artifact_path.is_file():
-        return {artifact_path.name: artifact_path} if artifact_path.suffix.lower() == ".parquet" else {}
-    return {parquet_file.name: parquet_file for parquet_file in sorted(artifact_path.rglob("*.parquet"))}
+    files = iter_artifact_files(artifact_path, limits)
+    return {path.name: path for path in files if path.suffix.lower() == ".parquet"}
 
 
 def load_pickle_artifact(path: Path, *, allow_unsafe_pickle: bool = False) -> object:
@@ -89,11 +108,44 @@ def load_pickle_artifact(path: Path, *, allow_unsafe_pickle: bool = False) -> ob
     return pd.read_pickle(path)
 
 
-def render_artifact_file(path: Path, *, allow_unsafe_pickle: bool = False) -> None:
-    """Handle render artifact file."""
+def parquet_preview(path: Path, max_rows: int) -> tuple[pd.DataFrame, bool]:
+    """Read at most ``max_rows`` from a Parquet file without materializing it all."""
+    batches = pq.ParquetFile(path).iter_batches(batch_size=min(max_rows + 1, 65_536))
+    frames: list[pd.DataFrame] = []
+    remaining = max_rows + 1
+    for batch in batches:
+        frame = batch.to_pandas()
+        frames.append(frame.iloc[:remaining])
+        remaining -= len(frames[-1])
+        if remaining <= 0:
+            break
+    dataframe = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    truncated = len(dataframe) > max_rows
+    return dataframe.head(max_rows), truncated
+
+
+def bounded_plot_data(dataframe: pd.DataFrame, max_points: int) -> pd.DataFrame:
+    """Downsample a frame to a deterministic plotting budget."""
+    if len(dataframe) <= max_points:
+        return dataframe
+    step = max(1, (len(dataframe) + max_points - 1) // max_points)
+    sampled = dataframe.iloc[::step]
+    return sampled.iloc[:max_points]
+
+
+def render_artifact_file(
+    path: Path,
+    *,
+    allow_unsafe_pickle: bool = False,
+    limits: ArtifactLimits | None = None,
+) -> None:
+    """Render one artifact within configured file, row, and plot budgets."""
+    limits = limits or ArtifactLimits()
+    if path.stat().st_size > limits.max_file_bytes:
+        raise ValueError(f"Artifact file exceeds max_file_bytes ({limits.max_file_bytes}): {path}")
     suffix = path.suffix.lower()
     if is_tar_artifact(path):
-        render_tar_artifact(path, allow_unsafe_pickle=allow_unsafe_pickle)
+        render_tar_artifact(path, allow_unsafe_pickle=allow_unsafe_pickle, limits=limits)
         return
 
     with st.expander(path.name, expanded=False):
@@ -101,9 +153,12 @@ def render_artifact_file(path: Path, *, allow_unsafe_pickle: bool = False) -> No
         if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
             st.image(str(path))
         elif suffix == ".csv":
-            st.dataframe(pd.read_csv(path), use_container_width=True)
+            dataframe = pd.read_csv(path, nrows=limits.max_render_rows + 1)
+            if len(dataframe) > limits.max_render_rows:
+                st.caption(f"Preview limited to {limits.max_render_rows:,} rows.")
+            st.dataframe(dataframe.head(limits.max_render_rows), use_container_width=True)
         elif suffix == ".parquet":
-            render_parquet_artifact(path)
+            render_parquet_artifact(path, limits)
         elif suffix in {".pkl", ".pickle"}:
             if not allow_unsafe_pickle:
                 st.warning("Pickle preview is disabled because loading pickle files can execute arbitrary code.")
@@ -123,7 +178,10 @@ def render_artifact_file(path: Path, *, allow_unsafe_pickle: bool = False) -> No
                     st.write(artifact)
         elif suffix in {".json", ".jsonl"}:
             if suffix == ".jsonl":
-                st.dataframe(pd.read_json(path, lines=True), use_container_width=True)
+                dataframe = pd.read_json(path, lines=True, nrows=limits.max_render_rows + 1)
+                if len(dataframe) > limits.max_render_rows:
+                    st.caption(f"Preview limited to {limits.max_render_rows:,} rows.")
+                st.dataframe(dataframe.head(limits.max_render_rows), use_container_width=True)
             else:
                 st.json(json.loads(path.read_text(encoding="utf-8")))
         elif suffix in {".txt", ".log", ".out", ".err", ".yaml", ".yml", ".toml"}:
@@ -236,8 +294,14 @@ def selected_materials(path: Path, thing: str, materials: list[str]) -> list[str
     return selected
 
 
-def render_parquet_series_plot(path: Path, thing: str, series_data: pd.DataFrame, time_column: str) -> None:
-    """Handle render parquet series plot."""
+def render_parquet_series_plot(
+    path: Path,
+    thing: str,
+    series_data: pd.DataFrame,
+    time_column: str,
+    max_plot_points: int,
+) -> None:
+    """Render a time-series plot within its configured point budget."""
     materials = sorted(series_data["material"].astype(str).unique())
     st.markdown(f"**{thing}**")
     selected = selected_materials(path, thing, materials)
@@ -245,7 +309,10 @@ def render_parquet_series_plot(path: Path, thing: str, series_data: pd.DataFrame
         st.info("Select at least one material to plot.")
         return
 
-    plot_data = series_data[series_data["material"].astype(str).isin(selected)]
+    plot_data = bounded_plot_data(
+        series_data[series_data["material"].astype(str).isin(selected)],
+        max_plot_points,
+    )
     fig = px.line(
         plot_data,
         x=time_column,
@@ -263,20 +330,23 @@ def render_parquet_series_plot(path: Path, thing: str, series_data: pd.DataFrame
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_parquet_time_plots(path: Path, dataframe: pd.DataFrame) -> None:
-    """Handle render parquet time plots."""
+def render_parquet_time_plots(path: Path, dataframe: pd.DataFrame, max_plot_points: int) -> None:
+    """Render bounded time-series plots from a Parquet preview."""
     time_column = find_time_column(dataframe)
     if time_column is None:
         return
 
     for thing, series_data in parquet_series_by_thing(dataframe, time_column, path.stem).items():
-        render_parquet_series_plot(path, thing, series_data, time_column)
+        render_parquet_series_plot(path, thing, series_data, time_column, max_plot_points)
 
 
-def render_parquet_artifact(path: Path) -> None:
-    """Handle render parquet artifact."""
-    dataframe = pd.read_parquet(path)
-    render_parquet_time_plots(path, dataframe)
+def render_parquet_artifact(path: Path, limits: ArtifactLimits | None = None) -> None:
+    """Render a bounded Parquet preview and its time-series plots."""
+    limits = limits or ArtifactLimits()
+    dataframe, truncated = parquet_preview(path, limits.max_render_rows)
+    if truncated:
+        st.caption(f"Preview limited to {limits.max_render_rows:,} rows.")
+    render_parquet_time_plots(path, dataframe, limits.max_plot_points)
     st.dataframe(dataframe, use_container_width=True)
 
 
@@ -286,21 +356,53 @@ def is_tar_artifact(path: Path) -> bool:
     return name.endswith((".tar", ".tar.gz", ".tgz"))
 
 
-def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
-    """Handle safe extract tar."""
+def safe_extract_tar(
+    tar: tarfile.TarFile,
+    destination: Path,
+    limits: ArtifactLimits | None = None,
+) -> list[tarfile.TarInfo]:
+    """Extract regular files and directories only after validating all budgets."""
+    limits = limits or ArtifactLimits()
     destination = destination.resolve()
-    for member in tar.getmembers():
+    members: list[tarfile.TarInfo] = []
+    expanded_bytes = 0
+    file_count = 0
+    for member in tar:
+        members.append(member)
+        if len(members) > limits.max_archive_members:
+            raise ValueError(f"Archive exceeds max_archive_members ({limits.max_archive_members})")
         member_path = (destination / member.name).resolve()
         if destination not in member_path.parents and member_path != destination:
             raise ValueError(f"Unsafe path in archive: {member.name}")
-    tar.extractall(destination, filter="data")
+        if not (member.isfile() or member.isdir()):
+            raise ValueError(f"Unsupported archive member type: {member.name}")
+        if member.isfile():
+            file_count += 1
+            if file_count > limits.max_recursive_files:
+                raise ValueError(f"Archive exceeds max_recursive_files ({limits.max_recursive_files})")
+            if member.size > limits.max_file_bytes:
+                raise ValueError(
+                    f"Archive member exceeds max_file_bytes ({member.size} > {limits.max_file_bytes}): {member.name}"
+                )
+            expanded_bytes += member.size
+            if expanded_bytes > limits.max_expanded_bytes:
+                raise ValueError(f"Archive exceeds max_expanded_bytes ({limits.max_expanded_bytes})")
+    tar.extractall(destination, members=members, filter="data")
+    return members
 
 
-def render_tar_artifact(path: Path, *, allow_unsafe_pickle: bool = False) -> None:
-    """Handle render tar artifact."""
+def render_tar_artifact(
+    path: Path,
+    *,
+    allow_unsafe_pickle: bool = False,
+    limits: ArtifactLimits | None = None,
+) -> None:
+    """Render a validated archive within configured expansion limits."""
+    limits = limits or ArtifactLimits()
     st.caption(f"Archive: `{path}`")
-    with tarfile.open(path) as tar:
-        members = [member for member in tar.getmembers() if member.isfile()]
+    with tarfile.open(path) as tar, tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        members = [member for member in safe_extract_tar(tar, temp_path, limits) if member.isfile()]
         st.dataframe(
             pd.DataFrame(
                 {
@@ -311,15 +413,23 @@ def render_tar_artifact(path: Path, *, allow_unsafe_pickle: bool = False) -> Non
             use_container_width=True,
             hide_index=True,
         )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            safe_extract_tar(tar, temp_path)
-            for artifact_file in sorted(item for item in temp_path.rglob("*") if item.is_file()):
-                render_artifact_file(artifact_file, allow_unsafe_pickle=allow_unsafe_pickle)
+        for artifact_file in iter_artifact_files(temp_path, limits):
+            render_artifact_file(
+                artifact_file,
+                allow_unsafe_pickle=allow_unsafe_pickle,
+                limits=limits,
+            )
 
 
-def show_run_artifacts(row: pd.Series, artifact_root: str, *, allow_unsafe_pickle: bool = False) -> None:
-    """Handle show run artifacts."""
+def show_run_artifacts(
+    row: pd.Series,
+    artifact_root: str,
+    *,
+    allow_unsafe_pickle: bool = False,
+    limits: ArtifactLimits | None = None,
+) -> None:
+    """Render confined run artifacts within configured resource budgets."""
+    limits = limits or ArtifactLimits()
     st.subheader("Artifacts")
     candidates = run_artifact_candidates(row, artifact_root)
     if not candidates:
@@ -334,18 +444,26 @@ def show_run_artifacts(row: pd.Series, artifact_root: str, *, allow_unsafe_pickl
         path = Path(candidate)
         if not path.exists():
             continue
-        if path.is_file():
-            render_artifact_file(path, allow_unsafe_pickle=allow_unsafe_pickle)
+        try:
+            artifact_files = list(iter_artifact_files(path, limits))
+        except ValueError as error:
+            st.error(str(error))
             return
-
-        artifact_files = [item for item in sorted(path.rglob("*")) if item.is_file()]
         if not artifact_files:
             st.info(f"Artifact directory is empty: `{path}`")
             return
 
-        st.caption(f"Artifact directory: `{path}`")
+        if path.is_dir():
+            st.caption(f"Artifact directory: `{path}`")
         for artifact_file in artifact_files:
-            render_artifact_file(artifact_file, allow_unsafe_pickle=allow_unsafe_pickle)
+            try:
+                render_artifact_file(
+                    artifact_file,
+                    allow_unsafe_pickle=allow_unsafe_pickle,
+                    limits=limits,
+                )
+            except (OSError, ValueError) as error:
+                st.error(f"Could not inspect `{artifact_file.name}`: {error}")
         return
 
     st.info("No local artifacts found for this run.")
@@ -378,9 +496,13 @@ def selected_compare_materials(
     return selected
 
 
-def parquet_thing_series(path: Path) -> tuple[str | None, dict[str, pd.DataFrame]]:
-    """Handle parquet thing series."""
-    dataframe = pd.read_parquet(path)
+def parquet_thing_series(
+    path: Path,
+    limits: ArtifactLimits | None = None,
+) -> tuple[str | None, dict[str, pd.DataFrame]]:
+    """Read bounded time-series groups from a Parquet artifact."""
+    limits = limits or ArtifactLimits()
+    dataframe, _ = parquet_preview(path, limits.max_render_rows)
     time_column = find_time_column(dataframe)
     if time_column is None:
         return None, {}
@@ -391,16 +513,18 @@ def compare_run_parquet_pairs(
     top_run: pd.Series,
     bottom_run: pd.Series,
     artifact_root: str,
+    limits: ArtifactLimits | None = None,
 ) -> list[dict[str, object]]:
-    """Handle compare run parquet pairs."""
-    top_files = parquet_files_for_run(top_run, artifact_root)
-    bottom_files = parquet_files_for_run(bottom_run, artifact_root)
+    """Pair bounded, confined Parquet artifacts shared by two runs."""
+    limits = limits or ArtifactLimits()
+    top_files = parquet_files_for_run(top_run, artifact_root, limits)
+    bottom_files = parquet_files_for_run(bottom_run, artifact_root, limits)
     pairs = []
     for name in sorted(set(top_files).intersection(bottom_files)):
         top_path = top_files[name]
         bottom_path = bottom_files[name]
-        top_time_column, top_groups = parquet_thing_series(top_path)
-        bottom_time_column, bottom_groups = parquet_thing_series(bottom_path)
+        top_time_column, top_groups = parquet_thing_series(top_path, limits)
+        bottom_time_column, bottom_groups = parquet_thing_series(bottom_path, limits)
         if top_time_column is None or bottom_time_column is None:
             continue
 
@@ -434,6 +558,7 @@ def render_compare_run_series_plot(
     top_label: str,
     bottom_label: str,
     plot_height: int,
+    max_plot_points: int,
 ) -> None:
     """Handle render compare run series plot."""
     top_materials = set(top_series["material"].astype(str).unique())
@@ -457,9 +582,16 @@ def render_compare_run_series_plot(
     figure = go.Figure()
     palette = px.colors.qualitative.Plotly
     color_by_material = {material: palette[index % len(palette)] for index, material in enumerate(shared_materials)}
+    points_per_trace = max(1, max_plot_points // (2 * len(selected_materials_for_plot)))
     for material in selected_materials_for_plot:
-        top_material_data = top_series[top_series["material"].astype(str) == material]
-        bottom_material_data = bottom_series[bottom_series["material"].astype(str) == material]
+        top_material_data = bounded_plot_data(
+            top_series[top_series["material"].astype(str) == material],
+            points_per_trace,
+        )
+        bottom_material_data = bounded_plot_data(
+            bottom_series[bottom_series["material"].astype(str) == material],
+            points_per_trace,
+        )
         figure.add_trace(
             go.Scatter(
                 x=top_material_data[top_time_column],
@@ -496,11 +628,13 @@ def show_compare_run_artifacts(
     bottom_run: pd.Series,
     artifact_root: str,
     plot_height: int,
+    limits: ArtifactLimits | None = None,
 ) -> None:
-    """Handle show compare run artifacts."""
+    """Render paired run artifacts within configured resource budgets."""
+    limits = limits or ArtifactLimits()
     top_label = "top"
     bottom_label = "bottom"
-    for pair in compare_run_parquet_pairs(top_run, bottom_run, artifact_root):
+    for pair in compare_run_parquet_pairs(top_run, bottom_run, artifact_root, limits):
         top_path = pair["top_path"]
         bottom_path = pair["bottom_path"]
         with st.expander(str(pair["name"]), expanded=False):
@@ -518,4 +652,5 @@ def show_compare_run_artifacts(
                     top_label=top_label,
                     bottom_label=bottom_label,
                     plot_height=plot_height,
+                    max_plot_points=limits.max_plot_points,
                 )

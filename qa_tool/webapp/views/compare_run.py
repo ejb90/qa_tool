@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 from packaging.version import Version
 
+from qa_tool.core.artifacts import ArtifactLimits
 from qa_tool.webapp.artifacts import (
     compare_run_parquet_pairs,
     first_local_artifact_path,
@@ -75,9 +76,10 @@ def show_compare_run(
     )
 
     artifact_root = settings["database"].get("artifact_root", "")
-    if compare_run_parquet_pairs(top_run, bottom_run, artifact_root):
+    artifact_limits = ArtifactLimits.from_mapping(settings.get("artifacts"))
+    if compare_run_parquet_pairs(top_run, bottom_run, artifact_root, artifact_limits):
         st.subheader("Artifact Time Series")
-        show_compare_run_artifacts(top_run, bottom_run, artifact_root, plot_height)
+        show_compare_run_artifacts(top_run, bottom_run, artifact_root, plot_height, artifact_limits)
 
     show_comparison_archive_controls(
         settings=settings,

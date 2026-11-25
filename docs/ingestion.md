@@ -184,6 +184,6 @@ For automated pipelines, stop on the first failed ingestion and publish the data
 - A duplicate `uid` is rejected. `--force` may replace exactly one matching row only when that stored row is incomplete under the current `required` policy; it never overwrites a complete run.
 - `--clobber` is the explicit destructive alternative: it deletes every existing row with the incoming UID and inserts the new validated row, even when the old run is complete. It does not bypass required-field or type validation, and it does not recreate the table schema. `--force` and `--clobber` are mutually exclusive.
 - Use one writer at a time. Do not let the dashboard or another job write the same DuckDB file concurrently.
-- Store paths that remain valid wherever the dashboard runs. Relative artifact paths are resolved from the dashboard's working directory.
+- Configure `[database].artifact_root` for every dashboard deployment and store artifact paths that resolve inside it. Relative database paths may be relative to the process working directory or to `artifact_root`, but their canonical target must remain beneath the configured root.
 - When modifying `runs` outside QA Tool, rebuild `run_summary` before relying on the Overview page.
 - For remote deployment, publish complete database-and-artifact snapshots rather than replacing a live database in place. See [Deployment](deployment.md).

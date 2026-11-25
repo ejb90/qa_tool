@@ -27,6 +27,7 @@ from qa_tool.core.archive import (
     local_artifact_paths,
     verify_comparison_archive,
 )
+from qa_tool.core.artifacts import ArtifactLimits
 from qa_tool.core.comparisons import (
     build_collection_metric_deltas,
     build_model_comparison,
@@ -711,6 +712,7 @@ def compare_runs(
                 pd.concat([top_matches, bottom_matches], ignore_index=True),
                 analysis_settings["database"].get("artifact_root", ""),
             ),
+            artifact_limits=ArtifactLimits.from_mapping(analysis_settings.get("artifacts")),
         )
     )
 

@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from qa_tool.core.archive import ComparisonArchive, comparison_archive_zip, create_comparison_archive
+from qa_tool.core.artifacts import ArtifactLimits
 
 
 def export_name(value: str) -> str:
@@ -93,6 +94,7 @@ def show_comparison_archive_controls(
                 metrics=metrics,
                 parameters=parameters,
                 artifact_paths=artifact_paths,
+                artifact_limits=ArtifactLimits.from_mapping(settings.get("artifacts")),
             )
             st.session_state[state_key] = {"archive": archive, "selection": selection}
             st.query_params["view"] = "saved_comparisons"

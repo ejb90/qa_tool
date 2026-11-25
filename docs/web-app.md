@@ -118,7 +118,7 @@ The page merges all configured `[archive].search_paths`, so local and shared arc
 
 ## Artifacts
 
-The app combines `artifact` from the run row with `artifact_root` when locating local files. Parquet files with a time-like column are plotted as time series. Archive artifacts are unpacked safely into a temporary location before inspection. Pickle files inside directories or archives follow the same disabled-by-default policy as standalone pickle artifacts.
+The app resolves database-provided artifact locations only beneath the configured `artifact_root`; without that approved root, local artifact inspection is disabled. Parquet files with a time-like column are plotted as time series. Archive artifacts are validated against configured member, file, and expanded-size limits before being unpacked into a temporary location. Directory scans, rendered rows, and plotted points are also bounded. See [Artifact trust boundary and limits](configuration.md#artifact-trust-boundary-and-limits). Pickle files inside directories or archives follow the same disabled-by-default policy as standalone pickle artifacts.
 
 !!! note
 

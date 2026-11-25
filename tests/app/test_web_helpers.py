@@ -11,7 +11,9 @@ import pandas as pd
 import pytest
 from pandas.io.formats.style import Styler
 
+from qa_tool.core.artifacts import ArtifactLimits, iter_artifact_files, local_artifact_candidates
 from qa_tool.webapp.artifacts import (
+    bounded_plot_data,
     compare_run_parquet_pairs,
     find_time_column,
     first_local_artifact_path,
@@ -20,6 +22,7 @@ from qa_tool.webapp.artifacts import (
     material_column,
     parquet_files_for_run,
     parquet_plot_key,
+    parquet_preview,
     parquet_series_by_thing,
     run_artifact_candidates,
     run_display_name,
@@ -70,9 +73,9 @@ def test_artifact_location_and_run_identity_helpers(tmp_path: Path) -> None:
     assert run_option_match_index(options, " run-two ") == 1
     assert run_option_match_index(options, "missing") is None
     assert run_option_match_index(options, "") is None
-    assert run_artifact_candidates(row, str(tmp_path / "root"))[0] == artifact
-    assert first_local_artifact_path(row, "") == artifact
-    assert parquet_files_for_run(row, "") == {artifact.name: artifact}
+    assert run_artifact_candidates(row, str(tmp_path))[0] == artifact
+    assert first_local_artifact_path(row, str(tmp_path)) == artifact
+    assert parquet_files_for_run(row, str(tmp_path)) == {artifact.name: artifact}
 
 
 def test_artifact_directory_fallback_and_series_parsing(tmp_path: Path) -> None:
@@ -85,8 +88,8 @@ def test_artifact_directory_fallback_and_series_parsing(tmp_path: Path) -> None:
     wide.to_parquet(wide_path)
     row = pd.Series({"uid": "uid-1", "name": "run", "artifact": str(run_dir / "missing.json")})
 
-    assert first_local_artifact_path(row, "") == run_dir
-    assert parquet_files_for_run(row, "") == {"series.parquet": wide_path}
+    assert first_local_artifact_path(row, str(tmp_path)) == run_dir
+    assert parquet_files_for_run(row, str(tmp_path)) == {"series.parquet": wide_path}
     assert find_time_column(wide) == "simulation_time"
     assert material_column(wide) is None
     assert split_series_column("density.h2") == ("density", "h2")
@@ -114,7 +117,7 @@ def test_matching_parquet_artifacts_are_paired_for_run_comparison(tmp_path: Path
     pairs = compare_run_parquet_pairs(
         pd.Series({"uid": "top", "name": "top", "artifact": str(top_dir)}),
         pd.Series({"uid": "bottom", "name": "bottom", "artifact": str(bottom_dir)}),
-        "",
+        str(tmp_path),
     )
 
     assert len(pairs) == 1
@@ -145,6 +148,107 @@ def test_tar_helpers_accept_safe_members_and_reject_traversal(tmp_path: Path) ->
         archive.addfile(member, io.BytesIO())
     with tarfile.open(unsafe_tar) as archive, pytest.raises(ValueError, match="Unsafe path"):
         safe_extract_tar(archive, destination)
+
+
+def test_artifact_paths_are_confined_to_root_and_reject_symlink_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Database path fields cannot select files outside the approved root."""
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    inside = root / "inside.txt"
+    outside = tmp_path / "outside.txt"
+    inside.write_text("inside", encoding="utf-8")
+    outside.write_text("outside", encoding="utf-8")
+
+    safe = pd.Series({"uid": "safe", "name": "safe", "artifact": str(inside)})
+    hostile = pd.Series({"uid": "../outside.txt", "name": str(outside), "artifact": str(outside)})
+    assert local_artifact_candidates(safe, root)[0] == inside
+    assert local_artifact_candidates(hostile, root) == []
+    assert local_artifact_candidates(safe, "") == []
+
+    monkeypatch.chdir(tmp_path)
+    relative = pd.Series({"uid": "safe", "name": "safe", "artifact": "artifacts/inside.txt"})
+    assert local_artifact_candidates(relative, "artifacts")[0] == inside
+
+    escape = root / "escape"
+    escape.symlink_to(outside)
+    escaped = pd.Series({"uid": "escape", "name": "escape", "artifact": str(escape)})
+    assert local_artifact_candidates(escaped, root) == []
+
+
+def test_recursive_artifact_limits_reject_too_many_large_and_linked_files(tmp_path: Path) -> None:
+    """Recursive inspection stops at file-count, file-size, and symlink boundaries."""
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    (root / "one.txt").write_bytes(b"1")
+    (root / "two.txt").write_bytes(b"22")
+
+    with pytest.raises(ValueError, match="max_recursive_files"):
+        list(iter_artifact_files(root, ArtifactLimits(max_recursive_files=1)))
+    with pytest.raises(ValueError, match="max_file_bytes"):
+        list(iter_artifact_files(root, ArtifactLimits(max_file_bytes=1)))
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (root / "linked.txt").symlink_to(outside)
+    with pytest.raises(ValueError, match="symlinks are not allowed"):
+        list(iter_artifact_files(root, ArtifactLimits()))
+
+
+def test_archive_limits_reject_links_member_counts_and_expanded_size(tmp_path: Path) -> None:
+    """Archive validation occurs before extracting hostile or oversized contents."""
+    destination = tmp_path / "extracted"
+    destination.mkdir()
+    archive_path = tmp_path / "bounded.tar"
+    with tarfile.open(archive_path, "w") as archive:
+        for name in ("one.txt", "two.txt"):
+            member = tarfile.TarInfo(name)
+            member.size = 2
+            archive.addfile(member, io.BytesIO(b"ok"))
+
+    with tarfile.open(archive_path) as archive, pytest.raises(ValueError, match="max_archive_members"):
+        safe_extract_tar(archive, destination, ArtifactLimits(max_archive_members=1))
+    with tarfile.open(archive_path) as archive, pytest.raises(ValueError, match="max_expanded_bytes"):
+        safe_extract_tar(archive, destination, ArtifactLimits(max_expanded_bytes=3))
+
+    link_path = tmp_path / "link.tar"
+    with tarfile.open(link_path, "w") as archive:
+        member = tarfile.TarInfo("linked")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "target"
+        archive.addfile(member)
+    with tarfile.open(link_path) as archive, pytest.raises(ValueError, match="Unsupported archive member"):
+        safe_extract_tar(archive, destination)
+
+    compressed_path = tmp_path / "compressed-bomb.tar.gz"
+    expanded = b"0" * 16_384
+    with tarfile.open(compressed_path, "w:gz") as archive:
+        member = tarfile.TarInfo("expanded.txt")
+        member.size = len(expanded)
+        archive.addfile(member, io.BytesIO(expanded))
+    assert compressed_path.stat().st_size < len(expanded)
+    with tarfile.open(compressed_path) as archive, pytest.raises(ValueError, match="max_expanded_bytes"):
+        safe_extract_tar(
+            archive,
+            destination,
+            ArtifactLimits(max_file_bytes=len(expanded), max_expanded_bytes=1024),
+        )
+
+
+def test_table_and_plot_previews_are_bounded(tmp_path: Path) -> None:
+    """Parquet reads and plot frames honor independent row and point budgets."""
+    path = tmp_path / "series.parquet"
+    frame = pd.DataFrame({"time": range(20), "value": range(20)})
+    frame.to_parquet(path, row_group_size=4)
+
+    preview, truncated = parquet_preview(path, 7)
+    assert truncated
+    assert preview["time"].tolist() == list(range(7))
+    plotted = bounded_plot_data(frame, 5)
+    assert len(plotted) == 5
+    assert plotted["time"].tolist() == [0, 4, 8, 12, 16]
 
 
 def test_pickle_loading_requires_explicit_unsafe_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

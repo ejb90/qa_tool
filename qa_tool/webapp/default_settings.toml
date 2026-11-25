@@ -10,6 +10,15 @@ cache_ttl_seconds = 60
 # Maximum detailed rows materialized by one non-paginated dashboard view.
 max_query_rows = 50000
 
+[artifacts]
+# Hard bounds applied while discovering, unpacking, reading, and plotting artifacts.
+max_archive_members = 1000
+max_expanded_bytes = 536870912
+max_file_bytes = 134217728
+max_recursive_files = 1000
+max_render_rows = 10000
+max_plot_points = 10000
+
 [database.columns]
 model = "model"
 version = "version"

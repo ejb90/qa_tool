@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 from packaging.version import Version
 
+from qa_tool.core.artifacts import ArtifactLimits
 from qa_tool.webapp.artifacts import run_display_name, run_option_match_index, show_run_artifacts
 
 
@@ -47,4 +48,5 @@ def show_run_detail(
         selected_run,
         settings["database"].get("artifact_root", ""),
         allow_unsafe_pickle=allow_unsafe_pickle,
+        limits=ArtifactLimits.from_mapping(settings.get("artifacts")),
     )

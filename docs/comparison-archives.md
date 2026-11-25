@@ -121,7 +121,7 @@ The `created_by` field comes from `getpass.getuser()`, which uses the account ru
 - Back up every archive location that holds an authoritative copy. DuckDB backups alone do not include comparison history.
 - Treat snapshot directories as append-only. Editing is possible at the filesystem level, but checksum verification will expose the change.
 - Use a shared writable archive path when CLI and web-app users need to see the same records.
-- Account for artifact size when preserving individual runs. The complete resolved local artifact directory is copied into that snapshot.
+- Account for artifact size when preserving individual runs. Files from the resolved local artifact directory are copied only within the configured artifact file-count, individual-size, and total-size limits; links are rejected.
 - Keep `manifest.json` and `checksums.sha256` with the data files when transferring a snapshot. The web ZIP download does this automatically.
 
 !!! warning "Archive writes"
