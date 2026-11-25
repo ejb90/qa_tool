@@ -1,6 +1,6 @@
 # QA Tool: Remaining Review Work
 
-This document records only the outstanding work from the project-wide review performed on 24 November 2026. It was reconciled against release `v0.5.0` on 25 November 2026; completed items have been removed.
+This document records only the outstanding work from the project-wide review performed on 24 November 2026. It was reconciled against release `v0.6.0` on 25 November 2026; completed items have been removed.
 
 ## Priority 1: Product and operational correctness
 
