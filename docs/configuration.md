@@ -119,9 +119,24 @@ Summary aggregations support `mean`, `min`, and `max`. Unknown metrics are ignor
 
 `[archive].save_path` is the single destination for newly created snapshots. It defaults to `qa_tool_archive` relative to the process working directory. CLI comparison commands use the same setting and can override it with `--archive-dir`.
 
+In a hosted dashboard, trusted users can create snapshots from the comparison
+views. The service account therefore needs write access to `save_path`, even
+when the runs database and artifact store are read-only. This is a deliberately
+narrow write boundary: dashboard users can add immutable comparison snapshots
+but cannot ingest runs or modify DuckDB through the web application.
+
 `[archive].search_paths` is an ordered list of locations displayed by **Saved Comparisons** and searched by CLI archive commands. This allows, for example, new comparisons to be saved locally while both a local directory and a read-only shared filesystem are browsed. If the same snapshot exists in more than one location, the copy in the first search path is used.
 
+Include `save_path` in `search_paths` so comparisons created by dashboard
+users appear in **Saved Comparisons**. The packaged defaults already use the
+same `qa_tool_archive` location for both settings.
+
 `save_path` must be writable wherever snapshots are created; entries in `search_paths` only need to be readable. Put important archives on persistent, backed-up storage and mount the required paths into containers separately from the artifact store. See [Comparison archives](comparison-archives.md).
+
+Every user who can access the dashboard can browse snapshots found in
+`search_paths`; QA Tool does not provide private comparison lists or per-user
+archive permissions. The manifest records the service's operating-system
+account as `created_by`, not the identity of the web user who saved it.
 
 ## Ingestion settings
 

@@ -11,10 +11,12 @@ DuckDB database and an associated artifact directory.
 | --- | --- | --- |
 | Ingestion job | Adds the new run to DuckDB and publishes a complete snapshot. | Database and object store |
 | Synchronizer | Downloads and validates the published snapshot on the Swarm data node. | Local staging area |
-| Dashboard service | Serves the currently promoted snapshot. | None |
+| Dashboard service | Serves the currently promoted snapshot and saves user-created comparisons. | Comparison archive only |
+| Dashboard user | Reads run data, performs comparisons, and may save shared comparison snapshots through the app. | No direct filesystem or database access |
 
 Only the ingestion job writes DuckDB. The dashboard mounts the database and
-artifacts read-only.
+artifacts read-only. Its service account may separately write to the configured
+comparison archive so trusted users can preserve their results.
 
 ## Storage layout
 

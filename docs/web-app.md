@@ -6,6 +6,28 @@ Run the dashboard with:
 qa-tool serve
 ```
 
+## Trust and access model
+
+QA Tool is intended for trusted local or internal networks. An administrator
+or controlled CI job owns the settings, starts the service, runs ingestion,
+and publishes the DuckDB database and artifacts. Dashboard users do not run
+ingestion and the web application does not write to the runs database.
+
+The web application has no built-in user accounts, authentication, or
+per-user authorization. Restrict access through network placement and, where
+the internal environment requires individual authentication, an external
+reverse proxy or access gateway. A deployment that is reachable across an
+untrusted network must add TLS and authentication at that boundary; exposing
+QA Tool directly to the public internet is outside the supported trust model.
+
+Trusted dashboard users can inspect the configured run data and artifacts,
+perform comparisons, and save comparison snapshots to the shared comparison
+archive. Saving requires the service process to have write access to
+`[archive].save_path`; it does not grant users write access to DuckDB or the
+artifact store. Saved comparisons are visible to every dashboard user who can
+read the configured archive search paths. They are not private per-user
+records.
+
 ## Run in Docker
 
 Build the image from the repository root, then mount the DuckDB database and
@@ -112,7 +134,12 @@ Non-overview pages expose shared model, version, date, and metric filters. The A
 
 The three comparison pages include a collapsed **Preserve this comparison** section below their results. Saving records the complete selected database rows, calculated table, standalone report, manifest, and checksums in `[archive].save_path`. **Compare Run** additionally copies the resolved local artifact directories so its detailed source data remains available; the CLI run comparison does the same.
 
-After saving, download the complete snapshot as a ZIP or open **Saved Comparisons** to verify and inspect it. The browser address is updated to a durable link such as `https://qa.example.org/?view=saved_comparisons&comparison=a8c41f92de10`; opening that link selects the Saved Comparisons tab and snapshot automatically. Copy the address to share the result with another authorized user of the hosted app. The shorter form containing only `?comparison=...` also works.
+After saving, download the complete snapshot as a ZIP or open **Saved Comparisons** to verify and inspect it. The browser address is updated to a durable link such as `https://qa.example.org/?view=saved_comparisons&comparison=a8c41f92de10`; opening that link selects the Saved Comparisons tab and snapshot automatically. Copy the address to share the result with another trusted user of the hosted app. The shorter form containing only `?comparison=...` also works.
+
+The snapshot's `created_by` value is the operating-system account running the
+QA Tool service. Because QA Tool does not identify web users, this field does
+not identify the individual who clicked **Save comparison**. Use an external
+authenticated proxy with access logs if individual attribution is required.
 
 The page merges all configured `[archive].search_paths`, so local and shared archives can be browsed together. It reads snapshots rather than recalculating against the current database and remains available when the configured DuckDB file is absent. The receiving app instance must be able to read the linked snapshot; the URL contains its ID, not the archived data. Detailed manifests and input rows remain collapsed until requested. See [Comparison archives](comparison-archives.md) for the format and CLI recovery commands.
 
