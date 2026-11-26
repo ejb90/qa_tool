@@ -83,4 +83,13 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The tag-triggered `Publish` workflow verifies that the tag and project version agree, creates a GitHub release, publishes to PyPI through the configured `pypi` trusted-publishing environment, and optionally triggers Read the Docs. Configure the `READTHEDOCS_API_KEY` repository secret to enable the final step.
+Branch, pull-request, and tagged-release checks all invoke
+`.github/workflows/validate.yml`. The reusable workflow runs Ruff, the supported
+Python test matrix, strict documentation, package and metadata validation, and
+a clean installed-wheel CLI smoke test. The tag-triggered `Publish` workflow
+uses the exact distributions uploaded by that validation run; it does not
+rebuild them. The validated distributions are attached to the GitHub Release.
+Twine publishing through the configured `pypi` trusted-publishing environment
+is disabled unless the repository variable `PYPI_PUBLISH_ENABLED` is exactly
+`true`. Read the Docs is triggered after the release when
+`READTHEDOCS_API_KEY` is configured.

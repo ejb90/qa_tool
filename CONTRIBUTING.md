@@ -21,6 +21,13 @@ uv run twine check dist/*
 uv run mkdocs build --strict
 ```
 
+CI also installs the built wheel into a clean environment and invokes
+`qa-tool --version`, `qa-tool --help`, and `qa-tool doctor --help`. Tagged
+releases run the same reusable validation workflow and publish the already
+validated distributions as GitHub Release assets rather than rebuilding them.
+PyPI upload remains disabled until the repository variable
+`PYPI_PUBLISH_ENABLED` is set to `true`.
+
 Use `uv run ruff format .` before opening a pull request to apply formatting.
 
 ## Documentation
@@ -35,4 +42,4 @@ Then open <http://127.0.0.1:8000>.
 
 ## Releases
 
-Update the version in `pyproject.toml` and merge it to `main`. The `Tag` workflow creates the corresponding `vX.Y.Z` tag; the tag-triggered `Publish` workflow builds, checks, releases, and publishes the package. See the [release guide](docs/releases.md) for the required PyPI and Read the Docs configuration.
+Update the version in `pyproject.toml` and merge it to `main`. The `Tag` workflow creates the corresponding `vX.Y.Z` tag; the tag-triggered `Publish` workflow validates, releases, and publishes the package. See the [release guide](docs/releases.md) for the required PyPI and Read the Docs configuration.
