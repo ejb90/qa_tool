@@ -39,6 +39,20 @@ This ordering is shared by dashboard filters, version selectors, tables, plots, 
 
 The dashboard and CLI can read an existing DuckDB `runs` table when it provides `uid`, `date`, and the configured model/version columns. Use `[database.columns]` to map differently named grouping columns without rewriting the table. See [Configuration](configuration.md).
 
+Run `qa-tool doctor` to check an existing database against both dashboard and
+ingestion settings without modifying it. The inspection covers configured
+tables and columns, required values, authoritative types, UID uniqueness, date
+parsing, column mappings, and the stored summary. Use `--format json` in CI.
+See [Inspect database health](cli.md#inspect-database-health) for the full
+command contract.
+
+QA Tool does not currently store a separate database-schema version or provide
+migration commands. The current implementation owns this format, supports
+additive run columns, and can rebuild a database by re-ingesting authoritative
+run metadata. A future release that introduces an incompatible persistent
+format must provide either documented rebuild instructions or versioned
+migration tooling before that change ships.
+
 ## Summary refresh timing
 
 `run_summary` is refreshed when ingestion completes. This makes the splash page cheap: it reads a single precomputed row rather than aggregating every run when the page is opened. Re-run ingestion whenever the underlying `runs` table is changed outside QA Tool.

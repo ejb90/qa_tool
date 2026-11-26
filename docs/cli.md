@@ -5,6 +5,7 @@ The `qa-tool` Rich Click command tree covers ingestion, the web app, and termina
 ```text
 qa-tool
 ├── ingest
+├── doctor
 ├── serve
 ├── report
 │   ├── models
@@ -63,6 +64,37 @@ TOML regression policy, emit standard JUnit XML, preserve the result, and use
 exit code 1 for an evaluated policy failure. See [Regression gates](regression-gates.md).
 
 Reports print a concise output destination by default. Use the top-level `--verbose` option to list every generated file, for example `qa-tool --verbose report models h2`.
+
+## Inspect database health
+
+`qa-tool doctor` opens the configured DuckDB file read-only and validates it
+before the dashboard or an automated analysis job uses it:
+
+```bash
+qa-tool doctor
+qa-tool doctor --database /data/current/runs.duckdb
+qa-tool doctor --settings dashboard.toml --ingest-settings ingest.toml
+qa-tool doctor --format json > doctor.json
+```
+
+Dashboard settings supply the database path and the physical columns mapped to
+`model` and `version`. Ingestion settings define the runs and summary table
+names, required columns, declared types, and configured summary fields. An
+explicit `--database` path overrides the dashboard setting.
+
+The command reports:
+
+- missing databases, configured tables, required columns, or required values;
+- unresolved or colliding dashboard column mappings;
+- columns that disagree with authoritative `[input.types]` declarations;
+- duplicated non-null UIDs and non-empty dates that cannot be parsed;
+- missing, malformed, or stale summary rows and fields.
+
+Text is the default format. `--format json` emits a stable report containing
+`status`, the inspected paths and tables, the run and finding counts, and a
+list of findings with codes and structured details. The command exits `0` for
+a healthy database and `1` after emitting a report with findings. Inspection
+never creates, repairs, or migrates a database.
 
 ## Model reports
 

@@ -1,35 +1,26 @@
 # QA Tool: Remaining Review Work
 
-This document records only the outstanding work from the project-wide review performed on 24 November 2026. It was reconciled against release `v0.6.0` on 25 November 2026; completed items have been removed.
+This document records only the outstanding work from the project-wide review performed on 24 November 2026. It was reconciled against release `v0.6.1` on 26 November 2026; completed items have been removed.
 
 ## Priority 1: Product and operational correctness
 
 ### Make tagged publishing run the full release gate
 
 - [ ] Reuse one validation workflow for pull requests and tagged releases.
+  Define the release checks once in a reusable GitHub Actions workflow, then call that same workflow from branch/pull-request validation and from the tag-triggered publishing workflow. The tag path must not maintain a smaller, separate approximation of the checks used during development.
+
 - [ ] Require tests, Ruff, formatting, strict documentation, build, and Twine validation before publishing.
+  The release gate should run the supported Python test matrix, Ruff linting and formatting checks, `mkdocs build --strict`, distribution builds, and `twine check`. Each check must be a required dependency of publication so a failure or cancellation prevents the release from advancing.
+
 - [ ] Install the built wheel in a clean environment and invoke its CLI entry point.
+  Create an isolated environment that cannot import QA Tool from the repository checkout, install the wheel produced by the build job, and invoke commands such as `qa-tool --version` and `qa-tool --help`. This verifies that package contents, runtime dependencies, and the declared console-script entry point work as installed rather than only from the source tree.
+
 - [ ] Prevent PyPI publication when any validation job fails.
+  Make the PyPI job depend explicitly on every required validation result and consume only the already validated distribution artifacts. It must not rebuild a different package or use an unconditional execution path; GitHub environment approval, release creation, and trusted publishing should occur only after the complete gate succeeds.
 
 Completion criterion: a manually pushed tag cannot publish code that has not passed the complete release suite.
 
 ## Priority 2: Production hardening
-
-### Add database inspection and migration tooling
-
-- [ ] Add a `qa-tool doctor` command to report missing required fields, duplicate UIDs, invalid dates, incompatible types, and stale summaries.
-  The command should be read-only by default, inspect an existing database against the active ingestion and dashboard settings, print actionable human-readable findings, and offer a machine-readable result with a non-zero status for automation.
-
-- [ ] Define a database schema/version marker.
-  Store an explicit QA Tool data-schema version in the database, separate from the package version, so commands can identify legacy, current, and unsupported future databases before querying or changing them.
-
-- [ ] Document supported migrations and compatibility guarantees.
-  State which schema versions each QA Tool release can read and write, whether direct or sequential upgrades are supported, what operators must back up first, and what downgrade or rollback behavior they can rely on.
-
-- [ ] Provide safe repair or migration commands where automation is unambiguous.
-  Repairs should cover deterministic operations such as rebuilding stale summaries or applying a defined schema migration. They should support a preview, run transactionally, avoid guessing how ambiguous data should be changed, and leave the original database recoverable if validation fails.
-
-Completion criterion: existing databases can be assessed before upgrade without discovering incompatibilities only when the dashboard starts.
 
 ### Add batch ingestion and dry-run support
 
@@ -44,7 +35,7 @@ Completion criterion: an automated pipeline can validate and ingest a batch atom
 
 - [ ] Add actual tests under the existing `integration` marker.
 - [ ] Test the installed wheel and CLI through subprocesses rather than only in-process invocation.
-- [ ] Add cache-refresh, concurrent-access, and migration tests.
+- [ ] Add cache-refresh and concurrent-access tests.
 - [ ] Increase coverage in artifact rendering, exports, summaries, and major Streamlit views.
 - [ ] Keep security regression tests for pickle handling, archive traversal, root confinement, and resource limits.
 
@@ -73,7 +64,6 @@ Completion criterion: shared behavior has one tested implementation, and operati
 ### Complete operational documentation
 
 - [ ] Add backup, restore, retention, and disaster-recovery guidance.
-- [ ] Document schema migration and compatibility policy.
 - [ ] Document artifact security and resource limits after they are implemented.
 - [ ] Ensure release documentation accurately lists every enforced release check.
 - [ ] Replace shock-bubble-specific packaged defaults with generic QA Tool defaults, leaving domain-specific values in examples.

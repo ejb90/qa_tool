@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import tomllib
@@ -33,6 +34,7 @@ from qa_tool.core.comparisons import (
     build_model_comparison,
     build_run_scalar_comparison,
 )
+from qa_tool.core.doctor import DoctorReport, inspect_database
 from qa_tool.core.gates import GateEvaluation, GatePolicy, evaluate_gate, gate_evaluation_junit, load_gate_policy
 from qa_tool.core.queries import load_runs, metric_columns, select_collection
 from qa_tool.core.settings import load_settings
@@ -377,6 +379,69 @@ def artifact_stream(context: click.Context) -> TextIO | None:
 @click.version_option(package_name="qa-tool")
 def cli(*, verbose: bool) -> None:
     """Ingest, report on, compare, and serve QA run data."""
+
+
+def _print_doctor_report(report: DoctorReport) -> None:
+    """Render one database inspection for a terminal user."""
+    console = Console()
+    details = Table.grid(padding=(0, 2))
+    details.add_column(style="bold cyan", justify="right")
+    details.add_column()
+    details.add_row("Database", report.database)
+    details.add_row("Runs table", report.runs_table)
+    details.add_row("Summary table", report.summary_table)
+    details.add_row("Run count", "unknown" if report.run_count is None else str(report.run_count))
+    if report.passed:
+        console.print(Panel(details, title="[bold green]✓ Database healthy", border_style="green"))
+        return
+
+    console.print(Panel(details, title="[bold red]✗ Database issues found", border_style="red"))
+    findings = Table(show_header=True, header_style="bold")
+    findings.add_column("Code", style="red")
+    findings.add_column("Finding")
+    for finding in report.findings:
+        findings.add_row(finding.code, finding.message)
+    console.print(findings)
+
+
+@cli.command()
+@click.option("--database", type=click.Path(path_type=Path), help="Override the configured DuckDB path.")
+@click.option(
+    "--settings",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Dashboard/analysis settings TOML.",
+)
+@click.option(
+    "--ingest-settings",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Ingestion settings TOML defining the database contract.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    show_default=True,
+    help="Human-readable text or machine-readable JSON.",
+)
+@handle_errors
+def doctor(
+    database: Path | None,
+    settings: Path | None,
+    ingest_settings: Path | None,
+    output_format: str,
+) -> None:
+    """Inspect a QA Tool database without modifying it."""
+    dashboard_settings = load_command_settings(settings)
+    ingestion_settings = load_ingest_settings(ingest_settings)
+    database_path = database or Path(dashboard_settings["database"]["path"])
+    report = inspect_database(database_path, dashboard_settings, ingestion_settings)
+    if output_format == "json":
+        click.echo(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    else:
+        _print_doctor_report(report)
+    if not report.passed:
+        raise click.exceptions.Exit(1)
 
 
 @cli.command()

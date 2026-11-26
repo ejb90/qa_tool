@@ -8,6 +8,10 @@
 
 ::: qa_tool.core.queries
 
+## Database inspection
+
+::: qa_tool.core.doctor
+
 ## Comparisons
 
 ::: qa_tool.core.comparisons

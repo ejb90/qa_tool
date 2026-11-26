@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -90,8 +91,45 @@ def test_root_help_lists_unified_commands(capsys: pytest.CaptureFixture[str]) ->
     main(["--help"])
 
     output = capsys.readouterr().out
-    for command in ("ingest", "serve", "report", "compare", "check", "archive"):
+    for command in ("ingest", "doctor", "serve", "report", "compare", "check", "archive"):
         assert command in output
+
+
+def test_doctor_reports_healthy_database_as_text_and_json(
+    database_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Doctor renders a healthy database for people and automation."""
+    with duckdb.connect(str(database_path)) as connection:
+        connection.execute(
+            "CREATE TABLE run_summary AS "
+            "SELECT CURRENT_TIMESTAMP AS refreshed_at, COUNT(*) AS run_count, "
+            "COUNT(DISTINCT model) AS model_count, COUNT(DISTINCT version) AS version_count FROM runs"
+        )
+
+    main(["doctor", "--database", str(database_path)])
+    assert "Database healthy" in capsys.readouterr().out
+
+    main(["doctor", "--database", str(database_path), "--format", "json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "passed"
+    assert report["run_count"] == 4
+    assert report["findings"] == []
+
+
+def test_doctor_json_failure_is_structured_and_exits_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Contract violations remain machine-readable before the command exits one."""
+    database = tmp_path / "runs.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("CREATE TABLE runs (uid VARCHAR)")
+
+    with pytest.raises(SystemExit, match="1"):
+        main(["doctor", "--database", str(database), "--format", "json"])
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "failed"
+    assert report["finding_count"] > 0
+    assert "missing_required_column" in {finding["code"] for finding in report["findings"]}
 
 
 @pytest.mark.parametrize("removed_command", ["webapp", "model", "version", "pie"])

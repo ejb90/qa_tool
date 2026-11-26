@@ -16,6 +16,7 @@ from qa_tool.core.comparisons import (
     build_run_scalar_comparison,
     build_version_comparison,
 )
+from qa_tool.core.doctor import DoctorFinding, DoctorReport, inspect_database
 from qa_tool.core.gates import (
     GateEvaluation,
     GatePolicy,
@@ -36,6 +37,8 @@ from qa_tool.core.queries import (
 
 __all__ = [
     "ComparisonArchive",
+    "DoctorFinding",
+    "DoctorReport",
     "GateEvaluation",
     "GatePolicy",
     "GateResult",
@@ -51,6 +54,7 @@ __all__ = [
     "find_comparison_archive",
     "find_comparison_archive_in_roots",
     "gate_evaluation_junit",
+    "inspect_database",
     "list_comparison_archives",
     "list_comparison_archives_from_roots",
     "load_gate_policy",
